@@ -12,13 +12,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          clean: false   # workspace wipe kam hota hai, but env still external keep
+          clean: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
+
+      - name: Restore .env (DO NOT commit .env)
+        run: |
+          cp /home/ubuntu/secrets/hrfms-backend/.env ./.env
+          chmod 600 ./.env
+          echo "✅ .env restored"
 
       - name: Install dependencies
         run: |
@@ -31,23 +37,49 @@ jobs:
       - name: Build (if any)
         run: npm run build --if-present
 
-      - name: Restore .env (DO NOT commit .env)
-        run: |
-          cp /home/ubuntu/secrets/hrfms-backend/.env ./.env
-          chmod 600 ./.env
-
       - name: Fix server entry require
         run: |
           sed -i "s|require('./app')|require('./src/app')|g" server.js || true
+          echo "✅ server.js patched (if needed)"
+          head -n 5 server.js
 
-      - name: Restart PM2
+      - name: Restart PM2 (robust)
         run: |
-          pm2 start server.js --name hrfms-backend --time || true
-          pm2 restart hrfms-backend
+          pwd
+          ls -la
+
+          pm2 describe hrfms-backend >/dev/null 2>&1 && EXISTS=1 || EXISTS=0
+
+          if [ "$EXISTS" -eq 0 ]; then
+            echo "Starting new PM2 process..."
+            pm2 start server.js --name hrfms-backend --time --update-env
+          else
+            echo "Restarting existing PM2 process..."
+            pm2 restart hrfms-backend --update-env
+          fi
+
           pm2 save
+          pm2 status
+          pm2 info hrfms-backend || true
 
-      - name: Health check
+      - name: Health check (wait + debug)
         run: |
-          PORT=$(grep -E '^PORT=' .env | cut -d= -f2 | tr -d '\r' || true)
+          PORT=$(grep -E '^PORT=' .env | head -n 1 | cut -d= -f2 | tr -d '\r' || true)
           if [ -z "$PORT" ]; then PORT=3000; fi
-          curl -f "http://localhost:${PORT}/health"
+
+          echo "Using PORT=$PORT"
+          echo "Waiting up to 30s for health..."
+
+          for i in {1..30}; do
+            if curl -fsS "http://localhost:${PORT}/health" >/dev/null; then
+              echo "✅ Health check OK"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "❌ Health check failed. Debug output:"
+          pm2 status || true
+          pm2 logs hrfms-backend --lines 200 || true
+          ss -tulpn | grep -E "node|:${PORT}" || true
+          exit 1
