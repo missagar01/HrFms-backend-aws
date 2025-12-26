@@ -40,8 +40,10 @@ class LeaveRequestModel {
         approved_by,
         approved_by_status,
         hr_approval,
-        approval_hr
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        approval_hr,
+        mobilenumber,
+        urgent_mobilenumber
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       RETURNING *
     `;
 
@@ -57,7 +59,9 @@ class LeaveRequestModel {
       data.approved_by ?? null,
       data.approved_by_status ?? null,
       data.hr_approval ?? null,
-      data.approval_hr ?? null
+      data.approval_hr ?? null,
+      data.mobilenumber ?? null,
+      data.urgent_mobilenumber ?? null
     ];
 
     const result = await pool.query(query, values);
@@ -80,8 +84,10 @@ class LeaveRequestModel {
         approved_by_status = COALESCE($10, approved_by_status),
         hr_approval = COALESCE($11, hr_approval),
         approval_hr = COALESCE($12, approval_hr),
+        mobilenumber = COALESCE($13, mobilenumber),
+        urgent_mobilenumber = COALESCE($14, urgent_mobilenumber),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $13
+      WHERE id = $15
       RETURNING *
     `;
 
@@ -98,6 +104,8 @@ class LeaveRequestModel {
       data.approved_by_status,
       data.hr_approval,
       data.approval_hr,
+      data.mobilenumber,
+      data.urgent_mobilenumber,
       id
     ];
 
