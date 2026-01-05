@@ -171,6 +171,42 @@ This backend follows a clean MVC pattern with separation of concerns:
 - `PUT /api/resumes/:id` - Update resume
 - `DELETE /api/resumes/:id` - Delete resume
 
+### Planet Visitors
+- `GET /api/planet-visitors` - List all planet visitors
+- `GET /api/planet-visitors/:id` - Get visitor by ID
+- `POST /api/planet-visitors` - Create visitor record (JSON payload)
+- `PUT /api/planet-visitors/:id` - Update visitor attributes (JSON payload)
+- `DELETE /api/planet-visitors/:id` - Remove a visitor record
+
+POST and PUT requests must include `Authorization: Bearer <TOKEN>` and accept JSON bodies with the following fields: `person_name`, `employee_code`, `reason_for_visit`, `no_of_person`, `from_date`, `to_date`, `requester_name`, `request_for`, `remarks`, and `request_status`. Dates follow `YYYY-MM-DD`, `no_of_person` must be a positive integer, and `request_status` defaults to `PENDING` when omitted.
+
+```bash
+curl -X POST http://localhost:3005/api/planet-visitors \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "person_name": "Rupesh Sahu",
+    "employee_code": "EMP123",
+    "reason_for_visit": "Stakeholder update",
+    "no_of_person": 3,
+    "from_date": "2024-06-01",
+    "to_date": "2024-06-03",
+    "requester_name": "Anita Verma",
+    "request_for": "Laptop",
+    "remarks": "Client facing visit"
+  }'
+```
+
+```bash
+curl -X PUT http://localhost:3005/api/planet-visitors/1 \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "request_status": "APPROVED",
+    "remarks": "Confirmed by HR"
+  }'
+```
+
 ### Leave Request (POST)
 ```json
 {

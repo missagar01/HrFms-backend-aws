@@ -152,6 +152,81 @@ Form Data:
 DELETE /api/tickets/:id
 ```
 
+## Planet Visitor Endpoints
+
+All planet visitor endpoints require an `Authorization: Bearer <TOKEN>` header and accept JSON payloads where applicable. Dates should be `YYYY-MM-DD`.
+
+### Get All Visitors
+```http
+GET /api/planet-visitors
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "person_name": "Rupesh Sahu",
+      "employee_code": "EMP123",
+      "reason_for_visit": "Client briefing",
+      "no_of_person": 2,
+      "from_date": "2024-06-01",
+      "to_date": "2024-06-03",
+      "requester_name": "Anita Verma",
+      "request_for": "Laptop",
+      "remarks": "Traveling with client",
+      "request_status": "PENDING",
+      "created_at": "2024-06-01T00:00:00.000Z",
+      "updated_at": "2024-06-01T00:00:00.000Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+### Get Visitor by ID
+```http
+GET /api/planet-visitors/:id
+```
+
+### Create Visitor
+```http
+POST /api/planet-visitors
+Content-Type: application/json
+
+{
+  "person_name": "Rupesh Sahu",
+  "employee_code": "EMP123",
+  "reason_for_visit": "Stakeholder update",
+  "no_of_person": 3,
+  "from_date": "2024-06-01",
+  "to_date": "2024-06-03",
+  "requester_name": "Anita Verma",
+  "request_for": "Laptop",
+  "remarks": "Client facing visit"
+}
+```
+
+**Notes:** The API normalizes empty strings to `null`, enforces `from_date <= to_date`, requires `no_of_person` to be a positive whole number, and applies `request_status = "PENDING"` if no status is supplied.
+
+### Update Visitor
+```http
+PUT /api/planet-visitors/:id
+Content-Type: application/json
+
+{
+  "request_status": "APPROVED",
+  "remarks": "Confirmed by HR"
+}
+```
+
+### Delete Visitor
+```http
+DELETE /api/planet-visitors/:id
+```
+
 ## Image Access
 
 Uploaded images are accessible via:
