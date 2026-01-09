@@ -71,6 +71,7 @@ class EmployeeService {
       employee_name: employee.employee_name,
       email: employee.email,
       role: employee.role,
+      page_access: employee.page_access,
       designation: employee.designation || null,
       department: employee.department || null
     };

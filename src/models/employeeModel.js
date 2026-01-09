@@ -1,15 +1,104 @@
 const pool = require("../config/db"); 
+
+const resolvePageAccessInput = (data) =>
+  data?.page_access ??
+  data?.pageAccess ??
+  data?.Page_Access ??
+  data?.PageAccess ??
+  null;
+
+const serializePageAccess = (value) => {
+  if (value == null || value === undefined) {
+    return null;
+  }
+
+  // If it's already a JSON string, return it as-is
+  if (typeof value === "string") {
+    // Check if it's a valid JSON string (array or object)
+    try {
+      const parsed = JSON.parse(value);
+      // If it parses successfully, re-stringify to ensure consistency
+      return JSON.stringify(parsed);
+    } catch {
+      // If it's not valid JSON, treat as a single string value and wrap in array
+      return JSON.stringify([value]);
+    }
+  }
+
+  // If it's an array or object, stringify it
+  if (Array.isArray(value) || typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return null;
+    }
+  }
+
+  // If it's a single value (string, number, etc.), wrap it in an array
+  return JSON.stringify([value]);
+};
+
+const deserializePageAccess = (value) => {
+  if (value == null || value === undefined || value === '') {
+    return [];
+  }
+
+  if (typeof value !== "string") {
+    // If it's already an array, return it
+    if (Array.isArray(value)) {
+      return value;
+    }
+    // If it's an object, return as array
+    if (typeof value === "object") {
+      return value;
+    }
+    // Otherwise wrap in array
+    return [value];
+  }
+
+  // Try to parse as JSON
+  try {
+    const parsed = JSON.parse(value);
+    // Ensure we return an array
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+    // If parsed value is an object, return as-is
+    if (typeof parsed === "object") {
+      return parsed;
+    }
+    // If it's a single value, wrap in array
+    return [parsed];
+  } catch {
+    // If parsing fails, treat as comma-separated string or single value
+    if (value.includes(',')) {
+      return value.split(',').map(item => item.trim()).filter(Boolean);
+    }
+    // Single value, wrap in array
+    return [value];
+  }
+};
+
+const hydrateEmployeePageAccess = (employee) => {
+  if (!employee) {
+    return null;
+  }
+  return {
+    ...employee,
+    page_access: deserializePageAccess(employee.page_access),
+  };
+};
  
 async function getAll() { 
   const result = await pool.query("SELECT * FROM employees ORDER BY id ASC"); 
-  return result.rows; 
+  return result.rows.map(hydrateEmployeePageAccess); 
 } 
- 
+
 async function getById(id) { 
   const result = await pool.query("SELECT * FROM employees WHERE id = $1", [id]); 
-  return result.rows[0] || null; 
+  return hydrateEmployeePageAccess(result.rows[0]); 
 } 
- 
+
 async function create(data) { 
   const query = ` 
     INSERT INTO employees ( 
@@ -17,29 +106,41 @@ async function create(data) {
       employee_name, 
       email, 
       mobile_number, 
+      page_access,
       department, 
       designation, 
       role, 
       status, 
       password 
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) 
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) 
     RETURNING * 
   `; 
- 
+
+  const pageAccessInput = resolvePageAccessInput(data);
+  const serializedPageAccess = serializePageAccess(pageAccessInput);
+  
+  // Debug logging
+  console.log('Create Employee - page_access input:', pageAccessInput);
+  console.log('Create Employee - serialized page_access:', serializedPageAccess);
+  console.log('Create Employee - data keys:', Object.keys(data));
+
   const values = [ 
     data.employee_code, 
     data.employee_name, 
     data.email, 
     data.mobile_number, 
+    serializedPageAccess,
     data.department, 
     data.designation, 
     data.role, 
     data.status, 
     data.password 
   ]; 
- 
+
   const result = await pool.query(query, values); 
-  return result.rows[0]; 
+  const created = hydrateEmployeePageAccess(result.rows[0]);
+  console.log('Create Employee - Result page_access:', created?.page_access);
+  return created; 
 }
  
 async function update(id, data) { 
@@ -54,11 +155,21 @@ async function update(id, data) {
       designation = $6, 
       role = $7, 
       status = $8, 
-      password = $9 
-    WHERE id = $10 
+      password = COALESCE(NULLIF($9, ''), password),
+      page_access = $10
+    WHERE id = $11 
     RETURNING * 
   `; 
- 
+
+  const pageAccessInput = resolvePageAccessInput(data);
+  const serializedPageAccess = serializePageAccess(pageAccessInput);
+  
+  // Debug logging
+  console.log('Update Employee - ID:', id);
+  console.log('Update Employee - page_access input:', pageAccessInput);
+  console.log('Update Employee - serialized page_access:', serializedPageAccess);
+  console.log('Update Employee - data keys:', Object.keys(data));
+
   const values = [ 
     data.employee_code, 
     data.employee_name, 
@@ -68,12 +179,15 @@ async function update(id, data) {
     data.designation, 
     data.role, 
     data.status, 
-    data.password, 
+    data.password || null, 
+    serializedPageAccess,
     id 
   ]; 
- 
+
   const result = await pool.query(query, values); 
-  return result.rows[0] || null; 
+  const updated = hydrateEmployeePageAccess(result.rows[0]);
+  console.log('Update Employee - Result page_access:', updated?.page_access);
+  return updated; 
 }
  
 async function remove(id) { 
@@ -86,7 +200,7 @@ async function getByCredentials(employeeCode, password) {
     "SELECT * FROM employees WHERE employee_code = $1 AND password = $2",
     [employeeCode, password]
   );
-  return result.rows[0] || null;
+  return hydrateEmployeePageAccess(result.rows[0]);
 }
 
 async function getDistinctDepartments() {
