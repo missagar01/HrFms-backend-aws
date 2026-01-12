@@ -30,12 +30,23 @@ app.use(express.json());
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Log all POST requests to /api/requests
+app.use('/api/requests', (req, res, next) => {
+  if (req.method === 'POST') {
+    console.log('🟢 APP: POST request to /api/requests');
+    console.log('🟢 Raw body type:', typeof req.body);
+    console.log('🟢 Raw body:', req.body);
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   if (typeof req.body === 'string') {
     const trimmedBody = req.body.trim();
     if (trimmedBody.startsWith('{') || trimmedBody.startsWith('[')) {
       try {
         req.body = JSON.parse(req.body);
+        console.log('🟡 Parsed JSON body:', req.body);
       } catch (error) {
         return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
       }

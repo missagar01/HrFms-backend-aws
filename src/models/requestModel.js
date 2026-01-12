@@ -31,6 +31,8 @@ class RequestModel {
         no_of_person,
         from_date,
         to_date,
+        from_city,
+        to_city,
         departure_date,
         requester_name,
         requester_designation,
@@ -44,8 +46,8 @@ class RequestModel {
       )
       SELECT
         next_no.request_no,
-        $1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10, $11, $12, $13, $14, $15, $16, $17
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+        $12, $13, $14, $15, $16, $17, $18, $19
       FROM next_no
       RETURNING *
     `;
@@ -58,6 +60,8 @@ class RequestModel {
       data.no_of_person !== null && data.no_of_person !== undefined ? data.no_of_person : null,
       data.from_date || null,
       data.to_date || null,
+      data.from_city || null,
+      data.to_city || null,
       data.departure_date || null,
       data.requester_name || null,
       data.requester_designation || null,
@@ -85,18 +89,20 @@ class RequestModel {
         no_of_person = COALESCE($5, no_of_person),
         from_date = COALESCE($6, from_date),
         to_date = COALESCE($7, to_date),
-        departure_date = COALESCE($8, departure_date),
-        requester_name = COALESCE($9, requester_name),
-        requester_designation = COALESCE($10, requester_designation),
-        requester_department = COALESCE($11, requester_department),
-        request_for = COALESCE($12, request_for),
-        request_quantity = COALESCE($13, request_quantity),
-        experience = COALESCE($14, experience),
-        education = COALESCE($15, education),
-        remarks = COALESCE($16, remarks),
-        request_status = COALESCE($17, request_status),
+        from_city = COALESCE($8, from_city),
+        to_city = COALESCE($9, to_city),
+        departure_date = COALESCE($10, departure_date),
+        requester_name = COALESCE($11, requester_name),
+        requester_designation = COALESCE($12, requester_designation),
+        requester_department = COALESCE($13, requester_department),
+        request_for = COALESCE($14, request_for),
+        request_quantity = COALESCE($15, request_quantity),
+        experience = COALESCE($16, experience),
+        education = COALESCE($17, education),
+        remarks = COALESCE($18, remarks),
+        request_status = COALESCE($19, request_status),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $18
+      WHERE id = $20
       RETURNING *
     `;
 
@@ -108,6 +114,8 @@ class RequestModel {
       data.no_of_person,
       data.from_date,
       data.to_date,
+      data.from_city,
+      data.to_city,
       data.departure_date,
       data.requester_name,
       data.requester_designation,
