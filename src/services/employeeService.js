@@ -23,17 +23,17 @@ class EmployeeService {
     }
   }
 
-  async createEmployee(data, files) {
+  async createEmployee(data, files, baseUrl) {
     try {
       this.validateEmployeeData(data);
 
       // Handle image uploads
       if (files) {
         if (files.profile_img && files.profile_img[0]) {
-          data.profile_img = getEmployeeImageUrl(files.profile_img[0].filename);
+          data.profile_img = getEmployeeImageUrl(files.profile_img[0].filename, baseUrl);
         }
         if (files.document_img && files.document_img[0]) {
-          data.document_img = getEmployeeImageUrl(files.document_img[0].filename);
+          data.document_img = getEmployeeImageUrl(files.document_img[0].filename, baseUrl);
         }
       }
 
@@ -43,7 +43,7 @@ class EmployeeService {
     }
   }
 
-  async updateEmployee(id, data, files) {
+  async updateEmployee(id, data, files, baseUrl) {
     try {
       const existingEmployee = await employeeModel.getById(id);
       if (!existingEmployee) {
@@ -55,11 +55,11 @@ class EmployeeService {
       };
 
       if (files?.profile_img?.[0]) {
-        payload.profile_img = getEmployeeImageUrl(files.profile_img[0].filename);
+        payload.profile_img = getEmployeeImageUrl(files.profile_img[0].filename, baseUrl);
       }
 
       if (files?.document_img?.[0]) {
-        payload.document_img = getEmployeeImageUrl(files.document_img[0].filename);
+        payload.document_img = getEmployeeImageUrl(files.document_img[0].filename, baseUrl);
       }
 
       return await employeeModel.update(id, payload);

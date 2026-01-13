@@ -58,10 +58,27 @@ const uploadEmployeeImages = multer({
   { name: 'document_img', maxCount: 1 }
 ]);
 
+// Determine base URL from explicit value or environment defaults
+const resolveBaseUrl = (overrideUrl) => {
+  const fromEnv = process.env.BASE_URL || process.env.API_BASE_URL;
+  const resolved = fromEnv || overrideUrl;
+
+  if (resolved && resolved.trim()) {
+    return resolved.replace(/\/+$/, '');
+  }
+
+  const fallbackPort = process.env.PORT || 3004;
+  const fallback = process.env.NODE_ENV === 'production' ? '' : `http://localhost:${fallbackPort}`;
+  return fallback.replace(/\/+$/, '');
+};
+
 // Helper function to generate image URL
-const getEmployeeImageUrl = (filename) => {
+const getEmployeeImageUrl = (filename, baseUrlOverride) => {
   if (!filename) return null;
-  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3004}`;
+  const baseUrl = resolveBaseUrl(baseUrlOverride);
+  if (!baseUrl) {
+    return `/uploads/employees/${filename}`;
+  }
   return `${baseUrl}/uploads/employees/${filename}`;
 };
 

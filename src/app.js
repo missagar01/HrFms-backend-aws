@@ -16,6 +16,9 @@ const notFound = require('./middleware/notFound');
 
 const app = express();
 
+// Honor proxy headers so req.protocol/req.get('host') reflect the client-facing address
+app.set('trust proxy', true);
+
 // Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
@@ -63,7 +66,9 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Serve static files (uploaded images)
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+const uploadsPath = path.resolve(__dirname, '../uploads');
+console.log('📂 Serving static files from:', uploadsPath);
+app.use('/uploads', express.static(uploadsPath));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
