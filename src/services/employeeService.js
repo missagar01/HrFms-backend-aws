@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const employeeModel = require('../models/employeeModel');
+const { getEmployeeImageUrl } = require('../utils/employeeUpload');
 
 class EmployeeService {
   async getAllEmployees() {
@@ -22,22 +23,46 @@ class EmployeeService {
     }
   }
 
-  async createEmployee(data) {
+  async createEmployee(data, files) {
     try {
       this.validateEmployeeData(data);
+
+      // Handle image uploads
+      if (files) {
+        if (files.profile_img && files.profile_img[0]) {
+          data.profile_img = getEmployeeImageUrl(files.profile_img[0].filename);
+        }
+        if (files.document_img && files.document_img[0]) {
+          data.document_img = getEmployeeImageUrl(files.document_img[0].filename);
+        }
+      }
+
       return await employeeModel.create(data);
     } catch (error) {
       throw new Error(`Failed to create employee: ${error.message}`);
     }
   }
 
-  async updateEmployee(id, data) {
+  async updateEmployee(id, data, files) {
     try {
       const existingEmployee = await employeeModel.getById(id);
       if (!existingEmployee) {
         throw new Error('Employee not found');
       }
-      return await employeeModel.update(id, data);
+      const payload = {
+        ...existingEmployee,
+        ...data
+      };
+
+      if (files?.profile_img?.[0]) {
+        payload.profile_img = getEmployeeImageUrl(files.profile_img[0].filename);
+      }
+
+      if (files?.document_img?.[0]) {
+        payload.document_img = getEmployeeImageUrl(files.document_img[0].filename);
+      }
+
+      return await employeeModel.update(id, payload);
     } catch (error) {
       throw error;
     }
@@ -75,6 +100,8 @@ class EmployeeService {
       designation: employee.designation || null,
       department: employee.department || null
     };
+    payload.profile_img = employee.profile_img ?? null;
+    payload.document_img = employee.document_img ?? null;
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRES_IN || '30d'
@@ -120,4 +147,3 @@ class EmployeeService {
 }
 
 module.exports = new EmployeeService();
-

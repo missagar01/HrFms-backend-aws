@@ -35,7 +35,7 @@ class EmployeeController {
 
   async createEmployee(req, res, next) {
     try {
-      const employee = await employeeService.createEmployee(req.body);
+      const employee = await employeeService.createEmployee(req.body, req.files);
       res.status(201).json({
         success: true,
         message: 'Employee created successfully',
@@ -49,7 +49,7 @@ class EmployeeController {
   async updateEmployee(req, res, next) {
     try {
       const { id } = req.params;
-      const employee = await employeeService.updateEmployee(id, req.body);
+      const employee = await employeeService.updateEmployee(id, req.body, req.files);
       res.status(200).json({
         success: true,
         message: 'Employee updated successfully',
