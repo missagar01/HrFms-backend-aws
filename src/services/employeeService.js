@@ -28,6 +28,14 @@ class EmployeeService {
       this.validateEmployeeData(data);
 
       // Handle image uploads
+      if (typeof data.page_access === 'string') {
+        try {
+          data.page_access = JSON.parse(data.page_access);
+        } catch (error) {
+          console.error('Error parsing page_access:', error);
+        }
+      }
+
       if (files) {
         if (files.profile_img && files.profile_img[0]) {
           data.profile_img = getEmployeeImageUrl(files.profile_img[0].filename, baseUrl);
@@ -49,6 +57,14 @@ class EmployeeService {
       if (!existingEmployee) {
         throw new Error('Employee not found');
       }
+      if (typeof data.page_access === 'string') {
+        try {
+          data.page_access = JSON.parse(data.page_access);
+        } catch (error) {
+          console.error('Error parsing page_access:', error);
+        }
+      }
+
       const payload = {
         ...existingEmployee,
         ...data
@@ -147,3 +163,8 @@ class EmployeeService {
 }
 
 module.exports = new EmployeeService();
+
+
+
+
+
