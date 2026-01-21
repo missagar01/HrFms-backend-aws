@@ -1,4 +1,9 @@
 const pool = require('../config/db');
+const axios = require('axios');
+
+const API_KEY = '361011012609';
+const DEVICE_SERIALS = ['E03C1CB36042AA02', 'E03C1CB34D83AA02'];
+const DEVICE_API_URL = 'http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs';
 
 const MONTH_WINDOW = 6;
 const ATTRITION_PATTERN = 'resign|left|terminated|separate';
@@ -213,6 +218,24 @@ class DashboardService {
       ` : 'SELECT NULL AS month, 0 AS visitors WHERE false';
 
       // Execute all queries
+      const results = await Promise.all([
+        client.query(summaryQuery),
+        client.query(statusDistributionQuery),
+        hasEmployeeCreatedAt ? client.query(monthlyHiringQuery) : Promise.resolve({ rows: [] }),
+        client.query(designationQuery),
+        client.query(leaveStatsQuery),
+        hasLeaveCreatedAt ? client.query(monthlyLeaveQuery) : Promise.resolve({ rows: [] }),
+        client.query(travelStatsQuery),
+        hasRequestCreatedAt ? client.query(monthlyTravelQuery) : Promise.resolve({ rows: [] }),
+        client.query(ticketStatsQuery),
+        hasTicketCreatedAt ? client.query(monthlyTicketQuery) : Promise.resolve({ rows: [] }),
+        client.query(resumeStatsQuery),
+        hasResumeCreatedAt ? client.query(monthlyResumeQuery) : Promise.resolve({ rows: [] }),
+        client.query(visitorStatsQuery),
+        hasVisitorCreatedAt ? client.query(monthlyVisitorQuery) : Promise.resolve({ rows: [] }),
+        client.query("SELECT employee_code FROM employees WHERE LOWER(status) = 'active'")
+      ]);
+
       const [
         summaryResult,
         statusResult,
@@ -228,22 +251,57 @@ class DashboardService {
         monthlyResumeResult,
         visitorStatsResult,
         monthlyVisitorResult
-      ] = await Promise.all([
-        client.query(summaryQuery),
-        client.query(statusDistributionQuery),
-        hasEmployeeCreatedAt ? client.query(monthlyHiringQuery) : Promise.resolve({ rows: [] }),
-        client.query(designationQuery),
-        client.query(leaveStatsQuery),
-        hasLeaveCreatedAt ? client.query(monthlyLeaveQuery) : Promise.resolve({ rows: [] }),
-        client.query(travelStatsQuery),
-        hasRequestCreatedAt ? client.query(monthlyTravelQuery) : Promise.resolve({ rows: [] }),
-        client.query(ticketStatsQuery),
-        hasTicketCreatedAt ? client.query(monthlyTicketQuery) : Promise.resolve({ rows: [] }),
-        client.query(resumeStatsQuery),
-        hasResumeCreatedAt ? client.query(monthlyResumeQuery) : Promise.resolve({ rows: [] }),
-        client.query(visitorStatsQuery),
-        hasVisitorCreatedAt ? client.query(monthlyVisitorQuery) : Promise.resolve({ rows: [] })
-      ]);
+      ] = results;
+
+      // Calculate Attendance Stats
+      let presentCount = 0;
+      let absentCount = 0;
+      const totalActiveEmployees = (results[14] && results[14].rows) ? results[14].rows.length : 0; // results[14] is the active employees query
+      const activeEmployeeCodes = (results[14] && results[14].rows) ? results[14].rows.map(e => e.employee_code) : [];
+
+      try {
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+        // Fetch logs from all devices
+        const logPromises = DEVICE_SERIALS.map(serial =>
+          axios.get(DEVICE_API_URL, {
+            params: {
+              APIKey: API_KEY,
+              SerialNumber: serial,
+              FromDate: dateStr,
+              ToDate: dateStr
+            }
+          }).then(res => res.data).catch(err => {
+            console.error(`Error fetching logs for device ${serial}:`, err.message);
+            return [];
+          })
+        );
+
+        const logsResults = await Promise.all(logPromises);
+        // logsResults is an array of arrays (or whatever the API returns)
+        // The API returns the list directly according to the user prompt.
+
+        const allLogs = logsResults.flat();
+
+        // Get unique employee codes from logs
+        const PresentEmployeeCodes = new Set(
+          allLogs
+            .filter(log => log && log.EmployeeCode)
+            .map(log => log.EmployeeCode)
+        );
+
+        // Calculate Present: Count of Active Employees who are in the logs
+        // We filter activeEmployeeCodes to see which ones are in PresentEmployeeCodes
+        presentCount = activeEmployeeCodes.filter(code => PresentEmployeeCodes.has(code)).length;
+
+        // Absent: Total Active - Present
+        absentCount = totalActiveEmployees - presentCount;
+
+      } catch (attendanceError) {
+        console.error('Error calculating attendance stats:', attendanceError);
+        // Fallback to 0 if error, or just continue
+      }
 
       // Process results
       const summaryRow = summaryResult.rows[0] || {
@@ -370,7 +428,13 @@ class DashboardService {
         designationCounts: designationResult.rows.map((row) => ({
           designation: row.designation,
           employees: row.employees
-        }))
+        })),
+        attendance: {
+          present: presentCount,
+          absent: absentCount,
+          totalActive: totalActiveEmployees,
+          date: new Date().toISOString().split('T')[0]
+        }
       };
     } catch (error) {
       throw new Error(`Failed to fetch dashboard stats: ${error.message}`);
