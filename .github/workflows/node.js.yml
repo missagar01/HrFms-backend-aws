@@ -26,11 +26,14 @@ jobs:
           chmod 600 ./.env
           echo "✅ .env restored"
 
-      - name: Install dependencies
+      - name: Install dependencies (ci if possible, else install)
         run: |
+          set -e
           if [ -f package-lock.json ]; then
-            npm ci
+            echo "📦 package-lock.json found -> trying npm ci"
+            npm ci || (echo "⚠️ npm ci failed (lock mismatch). Falling back to npm install" && npm install)
           else
+            echo "📦 no lock file -> npm install"
             npm install
           fi
 
