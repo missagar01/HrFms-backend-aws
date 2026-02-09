@@ -110,7 +110,8 @@ class EmployeeService {
       id: employee.id,
       employee_id: employee.employee_id,
       user_name: employee.user_name,
-      email: employee.email,
+      email_id: employee.email_id,
+      number: employee.number,
       role: employee.role,
       page_access: employee.page_access,
       system_access: employee.user_access || null,
@@ -157,7 +158,7 @@ class EmployeeService {
 
     // Email validation (only when provided)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (data.email && !emailRegex.test(data.email)) {
+    if (data.email_id && !emailRegex.test(data.email_id)) {
       throw new Error('Invalid email format');
     }
   }

@@ -104,8 +104,8 @@ async function create(data) {
     INSERT INTO users ( 
       employee_id, 
       user_name, 
-      email, 
-      mobile_number, 
+      email_id, 
+      number, 
       page_access,
       department, 
       designation, 
@@ -129,7 +129,7 @@ async function create(data) {
   const values = [
     data.employee_id,
     data.user_name,
-    data.email,
+    data.email_id,
     data.mobile_number,
     serializedPageAccess,
     data.department,
@@ -153,8 +153,8 @@ async function update(id, data) {
     SET 
       employee_id = $1, 
       user_name = $2, 
-      email = $3, 
-      mobile_number = $4, 
+      email_id = $3, 
+      number = $4, 
       department = $5, 
       designation = $6, 
       role = $7, 
@@ -179,7 +179,7 @@ async function update(id, data) {
   const values = [
     data.employee_id,
     data.user_name,
-    data.email,
+    data.email_id,
     data.mobile_number,
     data.department,
     data.designation,
