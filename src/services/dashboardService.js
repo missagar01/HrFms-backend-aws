@@ -47,8 +47,8 @@ class DashboardService {
 
     try {
       // Check for required columns
-      const hasEmployeeCreatedAt = await this.hasColumn(client, 'employees', 'created_at');
-      const hasEmployeeUpdatedAt = await this.hasColumn(client, 'employees', 'updated_at');
+      const hasEmployeeCreatedAt = await this.hasColumn(client, 'users', 'created_at');
+      const hasEmployeeUpdatedAt = await this.hasColumn(client, 'users', 'updated_at');
       const hasLeaveCreatedAt = await this.hasColumn(client, 'leave_request', 'created_at');
       const hasRequestCreatedAt = await this.hasColumn(client, 'request', 'created_at');
       const hasTicketCreatedAt = await this.hasColumn(client, 'ticket_book', 'created_at');
@@ -60,7 +60,7 @@ class DashboardService {
         ? `
             COUNT(*) FILTER (
               WHERE status IS NOT NULL
-                AND status ~* '${ATTRITION_PATTERN}'
+                AND status::text ~* '${ATTRITION_PATTERN}'
                 AND updated_at >= date_trunc('month', CURRENT_DATE)
             )::int
           `
@@ -69,20 +69,20 @@ class DashboardService {
       const summaryQuery = `
         SELECT
           COUNT(*)::int AS total_employees,
-          COUNT(*) FILTER (WHERE LOWER(status) = 'active')::int AS active_employees,
+          COUNT(*) FILTER (WHERE LOWER(status::text) = 'active')::int AS active_employees,
           COUNT(*) FILTER (
             WHERE status IS NOT NULL
-              AND status ~* '${ATTRITION_PATTERN}'
+              AND status::text ~* '${ATTRITION_PATTERN}'
           )::int AS resigned_employees,
           ${summaryLeftThisMonthClause} AS left_this_month
-        FROM employees
+        FROM users
       `;
 
       const statusDistributionQuery = `
         SELECT
-          COALESCE(NULLIF(TRIM(status), ''), 'Unknown') AS status_label,
+          COALESCE(NULLIF(TRIM(status::text), ''), 'Unknown') AS status_label,
           COUNT(*)::int AS count
-        FROM employees
+        FROM users
         GROUP BY 1
         ORDER BY COUNT(*) DESC, status_label ASC
       `;
@@ -91,7 +91,7 @@ class DashboardService {
         SELECT
           TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
           COUNT(*)::int AS hired
-        FROM employees
+        FROM users
         WHERE created_at IS NOT NULL
           AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
         GROUP BY 1
@@ -100,9 +100,9 @@ class DashboardService {
 
       const designationQuery = `
         SELECT
-          COALESCE(NULLIF(TRIM(designation), ''), 'Unassigned') AS designation,
+          COALESCE(NULLIF(TRIM(designation::text), ''), 'Unassigned') AS designation,
           COUNT(*)::int AS employees
-        FROM employees
+        FROM users
         GROUP BY 1
         ORDER BY employees DESC, designation ASC
         LIMIT 10
@@ -112,10 +112,10 @@ class DashboardService {
       const leaveStatsQuery = `
         SELECT
           COUNT(*)::int AS total_leaves,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'approved' OR LOWER(approved_by_status) = 'approved')::int AS approved_leaves,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'pending' OR (approved_by_status IS NULL AND request_status IS NULL))::int AS pending_leaves,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'rejected' OR LOWER(approved_by_status) = 'rejected')::int AS rejected_leaves,
-          COUNT(*) FILTER (WHERE LOWER(hr_approval) = 'approved' OR LOWER(approval_hr) = 'approved')::int AS hr_approved
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved' OR LOWER(approved_by_status::text) = 'approved')::int AS approved_leaves,
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR (approved_by_status IS NULL AND request_status IS NULL))::int AS pending_leaves,
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected' OR LOWER(approved_by_status::text) = 'rejected')::int AS rejected_leaves,
+          COUNT(*) FILTER (WHERE LOWER(hr_approval::text) = 'approved' OR LOWER(approval_hr::text) = 'approved')::int AS hr_approved
         FROM leave_request
       `;
 
@@ -134,9 +134,9 @@ class DashboardService {
       const travelStatsQuery = `
         SELECT
           COUNT(*)::int AS total_travels,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'approved')::int AS approved_travels,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'pending' OR request_status IS NULL)::int AS pending_travels,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'rejected')::int AS rejected_travels
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_travels,
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_travels,
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_travels
         FROM request
       `;
 
@@ -155,8 +155,8 @@ class DashboardService {
       const ticketStatsQuery = `
         SELECT
           COUNT(*)::int AS total_tickets,
-          COUNT(*) FILTER (WHERE LOWER(status) = 'booked' OR LOWER(status) = 'completed')::int AS booked_tickets,
-          COUNT(*) FILTER (WHERE LOWER(status) = 'pending' OR status IS NULL)::int AS pending_tickets,
+          COUNT(*) FILTER (WHERE LOWER(status::text) = 'booked' OR LOWER(status::text) = 'completed')::int AS booked_tickets,
+          COUNT(*) FILTER (WHERE LOWER(status::text) = 'pending' OR status IS NULL)::int AS pending_tickets,
           COALESCE(SUM(total_amount), 0)::numeric AS total_amount
         FROM ticket_book
       `;
@@ -177,10 +177,10 @@ class DashboardService {
       const resumeStatsQuery = `
         SELECT
           COUNT(*)::int AS total_candidates,
-          COUNT(*) FILTER (WHERE LOWER(candidate_status) = 'selected')::int AS selected_candidates,
-          COUNT(*) FILTER (WHERE LOWER(candidate_status) = 'pending' OR candidate_status IS NULL)::int AS pending_candidates,
-          COUNT(*) FILTER (WHERE LOWER(candidate_status) = 'rejected')::int AS rejected_candidates,
-          COUNT(*) FILTER (WHERE LOWER(joined_status) = 'joined' OR LOWER(joined_status) = 'yes')::int AS joined_candidates,
+          COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'selected')::int AS selected_candidates,
+          COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'pending' OR candidate_status IS NULL)::int AS pending_candidates,
+          COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'rejected')::int AS rejected_candidates,
+          COUNT(*) FILTER (WHERE LOWER(joined_status::text) = 'joined' OR LOWER(joined_status::text) = 'yes')::int AS joined_candidates,
           COUNT(*) FILTER (WHERE interviewer_status IS NOT NULL)::int AS interviewed_candidates
         FROM resume
       `;
@@ -200,9 +200,9 @@ class DashboardService {
       const visitorStatsQuery = `
         SELECT
           COUNT(*)::int AS total_visitors,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'approved')::int AS approved_visitors,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'pending' OR request_status IS NULL)::int AS pending_visitors,
-          COUNT(*) FILTER (WHERE LOWER(request_status) = 'rejected')::int AS rejected_visitors
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_visitors,
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_visitors,
+          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_visitors
         FROM plant_visitor
       `;
 
@@ -233,7 +233,7 @@ class DashboardService {
         hasResumeCreatedAt ? client.query(monthlyResumeQuery) : Promise.resolve({ rows: [] }),
         client.query(visitorStatsQuery),
         hasVisitorCreatedAt ? client.query(monthlyVisitorQuery) : Promise.resolve({ rows: [] }),
-        client.query("SELECT employee_code FROM employees WHERE LOWER(status) = 'active'")
+        client.query("SELECT employee_id FROM users WHERE LOWER(status::text) = 'active'")
       ]);
 
       const [
@@ -257,7 +257,7 @@ class DashboardService {
       let presentCount = 0;
       let absentCount = 0;
       const totalActiveEmployees = (results[14] && results[14].rows) ? results[14].rows.length : 0; // results[14] is the active employees query
-      const activeEmployeeCodes = (results[14] && results[14].rows) ? results[14].rows.map(e => e.employee_code) : [];
+      const activeEmployeeCodes = (results[14] && results[14].rows) ? results[14].rows.map(e => e.employee_id) : [];
 
       try {
         const today = new Date();

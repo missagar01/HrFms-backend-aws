@@ -1,4 +1,4 @@
-const pool = require("../config/db"); 
+const pool = require("../config/db");
 
 const resolvePageAccessInput = (data) =>
   data?.page_access ??
@@ -88,22 +88,22 @@ const hydrateEmployeePageAccess = (employee) => {
     page_access: deserializePageAccess(employee.page_access),
   };
 };
- 
-async function getAll() { 
-  const result = await pool.query("SELECT * FROM employees ORDER BY id ASC"); 
-  return result.rows.map(hydrateEmployeePageAccess); 
-} 
 
-async function getById(id) { 
-  const result = await pool.query("SELECT * FROM employees WHERE id = $1", [id]); 
-  return hydrateEmployeePageAccess(result.rows[0]); 
-} 
+async function getAll() {
+  const result = await pool.query("SELECT * FROM users ORDER BY id ASC");
+  return result.rows.map(hydrateEmployeePageAccess);
+}
 
-async function create(data) { 
+async function getById(id) {
+  const result = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
+  return hydrateEmployeePageAccess(result.rows[0]);
+}
+
+async function create(data) {
   const query = ` 
-    INSERT INTO employees ( 
-      employee_code, 
-      employee_name, 
+    INSERT INTO users ( 
+      employee_id, 
+      user_name, 
       email, 
       mobile_number, 
       page_access,
@@ -116,43 +116,43 @@ async function create(data) {
       document_img
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) 
     RETURNING * 
-  `; 
+  `;
 
   const pageAccessInput = resolvePageAccessInput(data);
   const serializedPageAccess = serializePageAccess(pageAccessInput);
-  
+
   // Debug logging
   console.log('Create Employee - page_access input:', pageAccessInput);
   console.log('Create Employee - serialized page_access:', serializedPageAccess);
   console.log('Create Employee - data keys:', Object.keys(data));
 
-  const values = [ 
-    data.employee_code, 
-    data.employee_name, 
-    data.email, 
-    data.mobile_number, 
+  const values = [
+    data.employee_id,
+    data.user_name,
+    data.email,
+    data.mobile_number,
     serializedPageAccess,
-    data.department, 
-    data.designation, 
-    data.role, 
-    data.status, 
+    data.department,
+    data.designation,
+    data.role,
+    data.status,
     data.password,
     data.profile_img || null,
     data.document_img || null
-  ]; 
+  ];
 
-  const result = await pool.query(query, values); 
+  const result = await pool.query(query, values);
   const created = hydrateEmployeePageAccess(result.rows[0]);
   console.log('Create Employee - Result page_access:', created?.page_access);
-  return created; 
+  return created;
 }
- 
-async function update(id, data) { 
+
+async function update(id, data) {
   const query = ` 
-    UPDATE employees 
+    UPDATE users 
     SET 
-      employee_code = $1, 
-      employee_name = $2, 
+      employee_id = $1, 
+      user_name = $2, 
       email = $3, 
       mobile_number = $4, 
       department = $5, 
@@ -165,47 +165,47 @@ async function update(id, data) {
       document_img = COALESCE($12, document_img)
     WHERE id = $13 
     RETURNING * 
-  `; 
+  `;
 
   const pageAccessInput = resolvePageAccessInput(data);
   const serializedPageAccess = serializePageAccess(pageAccessInput);
-  
+
   // Debug logging
   console.log('Update Employee - ID:', id);
   console.log('Update Employee - page_access input:', pageAccessInput);
   console.log('Update Employee - serialized page_access:', serializedPageAccess);
   console.log('Update Employee - data keys:', Object.keys(data));
 
-  const values = [ 
-    data.employee_code, 
-    data.employee_name, 
-    data.email, 
-    data.mobile_number, 
-    data.department, 
-    data.designation, 
-    data.role, 
-    data.status, 
-    data.password || null, 
+  const values = [
+    data.employee_id,
+    data.user_name,
+    data.email,
+    data.mobile_number,
+    data.department,
+    data.designation,
+    data.role,
+    data.status,
+    data.password || null,
     serializedPageAccess,
     data.profile_img !== undefined ? data.profile_img : null,
     data.document_img !== undefined ? data.document_img : null,
-    id 
-  ]; 
+    id
+  ];
 
-  const result = await pool.query(query, values); 
+  const result = await pool.query(query, values);
   const updated = hydrateEmployeePageAccess(result.rows[0]);
   console.log('Update Employee - Result page_access:', updated?.page_access);
-  return updated; 
+  return updated;
 }
- 
-async function remove(id) { 
-  const result = await pool.query("DELETE FROM employees WHERE id = $1 RETURNING *", [id]); 
-  return result.rows[0] || null; 
-} 
+
+async function remove(id) {
+  const result = await pool.query("DELETE FROM users WHERE id = $1 RETURNING *", [id]);
+  return result.rows[0] || null;
+}
 
 async function getByCredentials(employeeCode, password) {
   const result = await pool.query(
-    "SELECT * FROM employees WHERE employee_code = $1 AND password = $2",
+    "SELECT * FROM users WHERE user_name = $1 AND password = $2",
     [employeeCode, password]
   );
   return hydrateEmployeePageAccess(result.rows[0]);
@@ -213,23 +213,23 @@ async function getByCredentials(employeeCode, password) {
 
 async function getDistinctDepartments() {
   const result = await pool.query(
-    "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' ORDER BY department"
+    "SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY department"
   );
   return result.rows.map(row => row.department);
 }
 
 async function getDistinctDesignations() {
   const result = await pool.query(
-    "SELECT DISTINCT designation FROM employees WHERE designation IS NOT NULL AND designation != '' ORDER BY designation"
+    "SELECT DISTINCT designation FROM users WHERE designation IS NOT NULL AND designation != '' ORDER BY designation"
   );
   return result.rows.map(row => row.designation);
 }
- 
-module.exports = { 
-  getAll, 
-  getById, 
-  create, 
-  update, 
+
+module.exports = {
+  getAll,
+  getById,
+  create,
+  update,
   remove,
   getByCredentials,
   getDistinctDepartments,

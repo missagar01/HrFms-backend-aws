@@ -91,8 +91,8 @@ class EmployeeController {
 
   async loginEmployee(req, res, next) {
     try {
-      const { employee_code, password } = req.body;
-      const result = await employeeService.loginEmployee(employee_code, password);
+      const { user_name, password } = req.body;
+      const result = await employeeService.loginEmployee(user_name, password);
       res.status(200).json({
         success: true,
         message: 'Login successful',
@@ -105,7 +105,7 @@ class EmployeeController {
           message: error.message
         });
       }
-      if (error.message === 'Employee code and password are required') {
+      if (error.message === 'User Name and password are required') {
         return res.status(400).json({
           success: false,
           message: error.message

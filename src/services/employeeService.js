@@ -96,23 +96,24 @@ class EmployeeService {
     }
   }
 
-  async loginEmployee(employeeCode, password) {
-    if (!employeeCode || !password) {
-      throw new Error('Employee code and password are required');
+  async loginEmployee(userName, password) {
+    if (!userName || !password) {
+      throw new Error('User Name and password are required');
     }
 
-    const employee = await employeeModel.getByCredentials(employeeCode, password);
+    const employee = await employeeModel.getByCredentials(userName, password);
     if (!employee) {
       throw new Error('Invalid credentials');
     }
 
     const payload = {
       id: employee.id,
-      employee_code: employee.employee_code,
-      employee_name: employee.employee_name,
+      employee_id: employee.employee_id,
+      user_name: employee.user_name,
       email: employee.email,
       role: employee.role,
       page_access: employee.page_access,
+      system_access: employee.user_access || null,
       designation: employee.designation || null,
       department: employee.department || null
     };
@@ -144,7 +145,7 @@ class EmployeeService {
 
   validateEmployeeData(data) {
     const requiredFields = [
-      'employee_code',
+      'employee_id',
       'password'
     ];
 

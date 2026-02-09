@@ -30,7 +30,7 @@ class LeaveRequestModel {
     const query = `
       INSERT INTO leave_request (
         employee_id,
-        employee_name,
+        user_name,
         designation,
         department,
         from_date,
@@ -49,7 +49,7 @@ class LeaveRequestModel {
 
     const values = [
       data.employee_id ?? null,
-      data.employee_name ?? null,
+      data.user_name ?? null,
       data.designation ?? null,
       data.department ?? null,
       data.from_date ?? null,
@@ -73,7 +73,7 @@ class LeaveRequestModel {
       UPDATE leave_request
       SET
         employee_id = COALESCE($1, employee_id),
-        employee_name = COALESCE($2, employee_name),
+        user_name = COALESCE($2, user_name),
         designation = COALESCE($3, designation),
         department = COALESCE($4, department),
         from_date = COALESCE($5, from_date),
@@ -93,7 +93,7 @@ class LeaveRequestModel {
 
     const values = [
       data.employee_id,
-      data.employee_name,
+      data.user_name,
       data.designation,
       data.department,
       data.from_date,
