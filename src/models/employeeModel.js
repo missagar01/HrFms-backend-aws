@@ -12,30 +12,30 @@ const serializePageAccess = (value) => {
     return null;
   }
 
-  // If it's already a JSON string, return it as-is
+  // If already an array, join with commas
+  if (Array.isArray(value)) {
+    return value.join(',');
+  }
+
+  // If it's a string
   if (typeof value === "string") {
-    // Check if it's a valid JSON string (array or object)
-    try {
-      const parsed = JSON.parse(value);
-      // If it parses successfully, re-stringify to ensure consistency
-      return JSON.stringify(parsed);
-    } catch {
-      // If it's not valid JSON, treat as a single string value and wrap in array
-      return JSON.stringify([value]);
+    // If it looks like a JSON array, parse and join
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return parsed.join(',');
+        }
+      } catch {
+        // ignore error, treat as string
+      }
     }
+    return value;
   }
 
-  // If it's an array or object, stringify it
-  if (Array.isArray(value) || typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return null;
-    }
-  }
-
-  // If it's a single value (string, number, etc.), wrap it in an array
-  return JSON.stringify([value]);
+  // Fallback for objects or other types
+  return String(value);
 };
 
 const deserializePageAccess = (value) => {
