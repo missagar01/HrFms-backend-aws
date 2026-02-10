@@ -96,12 +96,12 @@ class EmployeeService {
     }
   }
 
-  async loginEmployee(userName, password) {
-    if (!userName || !password) {
-      throw new Error('User Name and password are required');
+  async loginEmployee(identifier, password) {
+    if (!identifier || !password) {
+      throw new Error('User Name/Employee ID and password are required');
     }
 
-    const employee = await employeeModel.getByCredentials(userName, password);
+    const employee = await employeeModel.getByCredentials(identifier, password);
     if (!employee) {
       throw new Error('Invalid credentials');
     }

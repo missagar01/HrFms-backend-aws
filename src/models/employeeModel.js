@@ -130,7 +130,7 @@ async function create(data) {
     data.employee_id,
     data.user_name,
     data.email_id,
-    data.mobile_number,
+    data.number || data.mobile_number,
     serializedPageAccess,
     data.department,
     data.designation,
@@ -175,12 +175,14 @@ async function update(id, data) {
   console.log('Update Employee - page_access input:', pageAccessInput);
   console.log('Update Employee - serialized page_access:', serializedPageAccess);
   console.log('Update Employee - data keys:', Object.keys(data));
+  console.log('Update Employee - email_id:', data.email_id);
+  console.log('Update Employee - number:', data.number || data.mobile_number);
 
   const values = [
     data.employee_id,
     data.user_name,
     data.email_id,
-    data.mobile_number,
+    data.number || data.mobile_number,
     data.department,
     data.designation,
     data.role,
@@ -203,10 +205,10 @@ async function remove(id) {
   return result.rows[0] || null;
 }
 
-async function getByCredentials(employeeCode, password) {
+async function getByCredentials(identifier, password) {
   const result = await pool.query(
-    "SELECT * FROM users WHERE user_name = $1 AND password = $2",
-    [employeeCode, password]
+    "SELECT * FROM users WHERE (user_name = $1 OR employee_id = $1) AND password = $2",
+    [identifier, password]
   );
   return hydrateEmployeePageAccess(result.rows[0]);
 }

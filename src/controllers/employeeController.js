@@ -91,8 +91,9 @@ class EmployeeController {
 
   async loginEmployee(req, res, next) {
     try {
-      const { user_name, password } = req.body;
-      const result = await employeeService.loginEmployee(user_name, password);
+      const { user_name, employee_id, password } = req.body;
+      const identifier = user_name || employee_id;
+      const result = await employeeService.loginEmployee(identifier, password);
       res.status(200).json({
         success: true,
         message: 'Login successful',
