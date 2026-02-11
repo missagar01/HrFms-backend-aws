@@ -17,8 +17,12 @@ class ResumeModel {
   }
 
   async create(data) {
+    console.log('📝 MODEL: ResumeModel.create called');
+
+    // Check if the table is empty or has data
     const query = `
       INSERT INTO resume (
+        id,
         candidate_name,
         candidate_email,
         candidate_mobile,
@@ -36,34 +40,59 @@ class ResumeModel {
         interviewer_actual,
         interviewer_status,
         candidate_status,
-        joined_status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        joined_status,
+        created_at,
+        updated_at
+      ) VALUES (
+        (SELECT COALESCE(MAX(id), 0) + 1 FROM resume),
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
       RETURNING *
     `;
 
     const values = [
-      data.candidate_name ?? null,
-      data.candidate_email ?? null,
-      data.candidate_mobile ?? null,
-      data.applied_for_designation ?? null,
-      data.req_id ?? null,
-      data.experience ?? null,
-      data.previous_company ?? null,
-      data.previous_salary ?? null,
-      data.reason_for_changing ?? null,
-      data.marital_status ?? null,
-      data.reference ?? null,
-      data.address_present ?? null,
-      data.resume ?? null,
-      data.interviewer_planned ?? null,
-      data.interviewer_actual ?? null,
-      data.interviewer_status ?? null,
-      data.candidate_status ?? null,
-      data.joined_status ?? null
+      data.candidate_name || null,
+      data.candidate_email || null,
+      data.candidate_mobile || null,
+      data.applied_for_designation || null,
+      data.req_id || null,
+      data.experience || null,
+      data.previous_company || null,
+      data.previous_salary || null,
+      data.reason_for_changing || null,
+      data.marital_status || null,
+      data.reference || null,
+      data.address_present || null,
+      data.resume || null,
+      data.interviewer_planned || null,
+      data.interviewer_actual || null,
+      data.interviewer_status || null,
+      data.candidate_status || 'Pending',
+      data.joined_status || 'No'
     ];
 
-    const result = await pool.query(query, values);
-    return result.rows[0];
+    try {
+      console.log('📝 DB QUERY:', query.replace(/\s+/g, ' '));
+      console.log('📝 DB VALUES:', JSON.stringify(values));
+      const result = await pool.query(query, values);
+      console.log('📝 DB RESULT:', JSON.stringify({
+        rowCount: result.rowCount,
+        rows: result.rows
+      }, null, 2));
+
+      if (result.rows && result.rows.length > 0) {
+        console.log('📝 DB SUCCESS: Resume inserted with ID:', result.rows[0].id);
+        return result.rows[0];
+      } else {
+        console.warn('⚠️ DB WARNING: Insert succeeded but no rows returned!');
+        return null;
+      }
+
+    } catch (error) {
+      console.error('❌ DB ERROR in ResumeModel.create:', error.message);
+      console.error('❌ ERROR STACK:', error.stack);
+      throw error;
+    }
   }
 
   async update(id, data) {
@@ -126,16 +155,16 @@ class ResumeModel {
   }
 
   // get only selected candidates
-async findSelectedCandidates() {
-  const query = `
+  async findSelectedCandidates() {
+    const query = `
     SELECT *
     FROM resume
     WHERE candidate_status = 'Selected'
     ORDER BY updated_at DESC
   `;
-  const result = await pool.query(query);
-  return result.rows;
-}
+    const result = await pool.query(query);
+    return result.rows;
+  }
 
 
 }

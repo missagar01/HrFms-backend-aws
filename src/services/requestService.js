@@ -27,18 +27,18 @@ class RequestService {
       console.log('🟠 Input data:', JSON.stringify(data, null, 2));
       console.log('🟠 from_city:', data.from_city, 'type:', typeof data.from_city);
       console.log('🟠 to_city:', data.to_city, 'type:', typeof data.to_city);
-      
+
       // Normalize data: convert empty strings to null for optional fields
       const normalizedData = this.normalizeRequestData(data);
-      
+
       console.log('🟠 === SERVICE: After normalization ===');
       console.log('🟠 Normalized from_city:', normalizedData.from_city, 'type:', typeof normalizedData.from_city);
       console.log('🟠 Normalized to_city:', normalizedData.to_city, 'type:', typeof normalizedData.to_city);
       console.log('🟠 Full normalized data:', JSON.stringify(normalizedData, null, 2));
-      
+
       // Validate required fields
       this.validateRequestData(normalizedData);
-      
+
       console.log('🟠 === SERVICE: Calling model.create ===');
       const result = await requestModel.create(normalizedData);
       console.log('🟠 === SERVICE: Model returned ===');
@@ -54,29 +54,29 @@ class RequestService {
 
   normalizeRequestData(data) {
     const normalized = { ...data };
-    
+
     console.log('=== NORMALIZE: Input data ===');
     console.log('from_city input:', normalized.from_city, 'type:', typeof normalized.from_city);
     console.log('to_city input:', normalized.to_city, 'type:', typeof normalized.to_city);
-    
+
     // Normalize city fields explicitly to keep their values when provided.
     ['from_city', 'to_city'].forEach((field) => {
       const value = normalized[field];
-      
+
       // If null or undefined, set to null
       if (value === null || value === undefined) {
         normalized[field] = null;
         console.log(`${field}: null/undefined -> null`);
         return;
       }
-      
+
       // If empty string, set to null
       if (value === '') {
         normalized[field] = null;
         console.log(`${field}: empty string -> null`);
         return;
       }
-      
+
       // If it's a string, trim it
       if (typeof value === 'string') {
         const trimmed = value.trim();
@@ -159,14 +159,17 @@ class RequestService {
   }
 
   validateRequestData(data) {
-    // Required city fields
-    const cityFields = ['from_city', 'to_city'];
-    cityFields.forEach((field) => {
-      const value = data[field];
-      if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error(`${field} is required`);
-      }
-    });
+    // Only require city fields if it's a travel-related request
+    // (identified by having type_of_travel or reason_for_travel)
+    if (data.type_of_travel || data.reason_for_travel) {
+      const cityFields = ['from_city', 'to_city'];
+      cityFields.forEach((field) => {
+        const value = data[field];
+        if (typeof value !== 'string' || value.trim().length === 0) {
+          throw new Error(`${field} is required`);
+        }
+      });
+    }
 
     // Validate dates (only if both are provided)
     if (data.from_date && data.to_date) {

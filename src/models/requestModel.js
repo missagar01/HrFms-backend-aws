@@ -17,12 +17,17 @@ class RequestModel {
   }
 
   async create(data) {
+    console.log('📝 MODEL: RequestModel.create called with:', JSON.stringify(data, null, 2));
     const query = `
-      WITH next_no AS (
-        SELECT 'T-' || LPAD((COALESCE(MAX(id), 0) + 1)::text, 4, '0') AS request_no
-        FROM request
+      WITH next_vals AS (
+        SELECT COALESCE(MAX(id), 0) + 1 AS id FROM request
+      ),
+      next_no AS (
+        SELECT 'T-' || LPAD((v.id)::text, 4, '0') AS request_no 
+        FROM next_vals v
       )
       INSERT INTO request (
+        id,
         request_no,
         employee_code,
         person_name,
@@ -42,16 +47,19 @@ class RequestModel {
         experience,
         education,
         remarks,
-        request_status
+        request_status,
+        created_at,
+        updated_at
       )
       SELECT
-        next_no.request_no,
+        v.id,
+        n.request_no,
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        $12, $13, $14, $15, $16, $17, $18, $19
-      FROM next_no
+        $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM next_vals v, next_no n
       RETURNING *
     `;
-    
+
     const values = [
       data.employee_code || null,
       data.person_name || null,
@@ -74,8 +82,15 @@ class RequestModel {
       data.request_status || 'Open'
     ];
 
-    const result = await pool.query(query, values);
-    return result.rows[0];
+    try {
+      const result = await pool.query(query, values);
+      console.log('📝 Insert success! Request No:', result.rows[0]?.request_no);
+      return result.rows[0];
+    } catch (error) {
+      console.error('❌ MODEL ERROR in RequestModel.create:', error.message);
+      console.error('❌ Values:', JSON.stringify(values, null, 2));
+      throw error;
+    }
   }
 
   async update(id, data) {

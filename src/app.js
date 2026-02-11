@@ -35,16 +35,16 @@ app.use(express.json());
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Log all POST requests to /api/requests
-app.use('/api/requests', (req, res, next) => {
+// Global logging for all POST requests to debug submission issues
+app.use((req, res, next) => {
   if (req.method === 'POST') {
-    console.log('🟢 APP: POST request to /api/requests');
-    console.log('🟢 Raw body type:', typeof req.body);
-    console.log('🟢 Raw body:', req.body);
+    console.log(`🚀 [${new Date().toISOString()}] POST ${req.originalUrl}`);
+    console.log(`🚀 Type: ${req.headers['content-type']}`);
   }
   next();
 });
 
+// JSON parsing hack for text/plain bodies (Postman support)
 app.use((req, res, next) => {
   if (typeof req.body === 'string') {
     const trimmedBody = req.body.trim();
@@ -86,7 +86,7 @@ app.use('/api/tickets', ticketBookRoutes);
 app.use('/api/leave-requests', leaveRequestRoutes);
 app.use('/api/resumes', resumeRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/planet-visitors', planeVisitorRoutes);
+app.use('/api/plant-visitors', planeVisitorRoutes);
 
 // 404 handler
 app.use(notFound);

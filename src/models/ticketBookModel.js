@@ -20,6 +20,7 @@ class TicketBookModel {
   async create(data) {
     const query = `
       INSERT INTO ticket_book (
+        id,
         bill_number,
         travels_name,
         type_of_bill,
@@ -31,11 +32,16 @@ class TicketBookModel {
         person_name,
         booked_name,
         request_employee_code,
-        booked_employee_code
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        booked_employee_code,
+        created_at,
+        updated_at
+      ) VALUES (
+        (SELECT COALESCE(MAX(id), 0) + 1 FROM ticket_book),
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
       RETURNING *
     `;
-    
+
     const values = [
       data.bill_number,
       data.travels_name,

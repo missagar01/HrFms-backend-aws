@@ -20,6 +20,7 @@ class PlaneVisitorModel {
   async create(data) {
     const query = `
       INSERT INTO plant_visitor (
+        id,
         person_name,
         employee_code,
         reason_for_visit,
@@ -31,8 +32,13 @@ class PlaneVisitorModel {
         approve_by_name,
         request_for,
         remarks,
-        request_status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        request_status,
+        created_at,
+        updated_at
+      ) VALUES (
+        (SELECT COALESCE(MAX(id), 0) + 1 FROM plant_visitor),
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
       RETURNING *
     `;
 

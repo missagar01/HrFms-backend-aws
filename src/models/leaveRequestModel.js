@@ -29,8 +29,9 @@ class LeaveRequestModel {
   async create(data) {
     const query = `
       INSERT INTO leave_request (
+        id,
         employee_id,
-        user_name,
+          employee_name,
         designation,
         department,
         from_date,
@@ -42,14 +43,19 @@ class LeaveRequestModel {
         hr_approval,
         approval_hr,
         mobilenumber,
-        urgent_mobilenumber
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        urgent_mobilenumber,
+        created_at,
+        updated_at
+      ) VALUES (
+        (SELECT COALESCE(MAX(id), 0) + 1 FROM leave_request),
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
       RETURNING *
     `;
 
     const values = [
       data.employee_id ?? null,
-      data.user_name ?? null,
+      data.employee_name ?? null,
       data.designation ?? null,
       data.department ?? null,
       data.from_date ?? null,
@@ -73,7 +79,7 @@ class LeaveRequestModel {
       UPDATE leave_request
       SET
         employee_id = COALESCE($1, employee_id),
-        user_name = COALESCE($2, user_name),
+          employee_name = COALESCE($2,   employee_name),
         designation = COALESCE($3, designation),
         department = COALESCE($4, department),
         from_date = COALESCE($5, from_date),
@@ -93,7 +99,7 @@ class LeaveRequestModel {
 
     const values = [
       data.employee_id,
-      data.user_name,
+      data.employee_name,
       data.designation,
       data.department,
       data.from_date,

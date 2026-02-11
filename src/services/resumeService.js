@@ -23,18 +23,24 @@ class ResumeService {
 
   async createResume(data) {
     try {
-      // Normalize data: convert empty strings to null for optional fields
+      console.log('🚀 SERVICE: createResume called');
       const normalizedData = this.normalizeResumeData(data);
+      console.log('🚀 SERVICE: Data normalized');
       this.validateResumeData(normalizedData);
-      return await resumeModel.create(normalizedData);
+      console.log('🚀 SERVICE: Data validated, calling model');
+      const result = await resumeModel.create(normalizedData);
+      console.log('🚀 SERVICE: Model returned:', JSON.stringify(result, null, 2));
+      return result;
+
     } catch (error) {
+      console.error('❌ SERVICE ERROR in createResume:', error.message);
       throw new Error(`Failed to create resume: ${error.message}`);
     }
   }
 
   normalizeResumeData(data) {
     const normalized = { ...data };
-    
+
     // Convert empty strings to null for all fields
     Object.keys(normalized).forEach(key => {
       if (normalized[key] === '' || normalized[key] === undefined) {
@@ -45,17 +51,19 @@ class ResumeService {
     // Handle timestamp fields - convert empty strings to null
     const timestampFields = ['interviewer_planned', 'interviewer_actual'];
     timestampFields.forEach(field => {
-      if (normalized[field] === '' || normalized[field] === null || normalized[field] === undefined) {
+      const val = normalized[field];
+      if (val === '' || val === null || val === undefined) {
         normalized[field] = null;
-      } else if (typeof normalized[field] === 'string') {
-        // If it's a string, try to parse it as a timestamp
-        // Empty string or invalid date should be null
-        const date = new Date(normalized[field]);
-        if (isNaN(date.getTime())) {
-          normalized[field] = null;
-        } else {
-          // Keep as ISO string, PostgreSQL will handle it
+      } else if (typeof val === 'string') {
+        // Only try to convert to ISO if it's a digit-based date string
+        const date = new Date(val);
+        if (!isNaN(date.getTime()) && val.match(/\d/)) {
           normalized[field] = date.toISOString();
+        } else {
+          // If it's a name like "Neha Singh", we set to null for now 
+          // because the DB column is TIMESTAMP.
+          console.log(`⚠️ Warning: Field ${field} is not a valid date: "${val}". Set to null.`);
+          normalized[field] = null;
         }
       }
     });
@@ -128,7 +136,7 @@ class ResumeService {
       throw new Error(`Failed to fetch selected resumes: ${error.message}`);
     }
   }
-  
+
 }
 
 module.exports = new ResumeService();
