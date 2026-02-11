@@ -7,5 +7,7 @@ const router = express.Router();
 router.use(authenticateToken);
 
 router.get('/', dashboardController.getDashboardData.bind(dashboardController));
+router.get('/employee/:employeeId', dashboardController.getEmployeeDetails.bind(dashboardController));
 
 module.exports = router;
+

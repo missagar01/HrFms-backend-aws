@@ -26,418 +26,246 @@ function buildMonthWindow(count) {
 }
 
 class DashboardService {
+  constructor() {
+    this.columnCache = new Map();
+  }
+
   async hasColumn(client, tableName, columnName) {
+    const cacheKey = `${tableName}.${columnName}`;
+    if (this.columnCache.has(cacheKey)) return this.columnCache.get(cacheKey);
+
     const result = await client.query(
-      `
-        SELECT EXISTS (
-          SELECT 1
-          FROM information_schema.columns
-          WHERE table_schema = 'public'
-            AND table_name = $1
-            AND column_name = $2
-        ) AS exists
-      `,
+      `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2) AS exists`,
       [tableName, columnName]
     );
-    return Boolean(result.rows[0]?.exists);
+    const exists = Boolean(result.rows[0]?.exists);
+    this.columnCache.set(cacheKey, exists);
+    return exists;
+  }
+
+  async fetchDeviceLogs(fromDate, toDate) {
+    const logPromises = DEVICE_SERIALS.map(serial =>
+      axios.get(DEVICE_API_URL, {
+        params: { APIKey: API_KEY, SerialNumber: serial, FromDate: fromDate, ToDate: toDate }
+      }).then(res => res.data).catch(err => {
+        console.error(`Error fetching logs for device ${serial}:`, err.message);
+        return [];
+      })
+    );
+    const results = await Promise.all(logPromises);
+    return results.flat();
   }
 
   async getDashboardStats() {
     const client = await pool.connect();
-
     try {
-      // Check for required columns
-      const hasEmployeeCreatedAt = await this.hasColumn(client, 'users', 'created_at');
-      const hasEmployeeUpdatedAt = await this.hasColumn(client, 'users', 'updated_at');
-      const hasLeaveCreatedAt = await this.hasColumn(client, 'leave_request', 'created_at');
-      const hasRequestCreatedAt = await this.hasColumn(client, 'request', 'created_at');
-      const hasTicketCreatedAt = await this.hasColumn(client, 'ticket_book', 'created_at');
-      const hasResumeCreatedAt = await this.hasColumn(client, 'resume', 'created_at');
-      const hasVisitorCreatedAt = await this.hasColumn(client, 'plant_visitor', 'created_at');
+      // Parallelize Column Checks
+      const checkPromises = [
+        this.hasColumn(client, 'users', 'created_at'),
+        this.hasColumn(client, 'users', 'updated_at'),
+        this.hasColumn(client, 'leave_request', 'created_at'),
+        this.hasColumn(client, 'request', 'created_at'),
+        this.hasColumn(client, 'ticket_book', 'created_at'),
+        this.hasColumn(client, 'resume', 'created_at'),
+        this.hasColumn(client, 'plant_visitor', 'created_at')
+      ];
+      const [hEC, hEU, hLC, hRC, hTC, hResC, hVC] = await Promise.all(checkPromises);
 
-      // ========== EMPLOYEE STATS ==========
-      const summaryLeftThisMonthClause = hasEmployeeUpdatedAt
-        ? `
-            COUNT(*) FILTER (
-              WHERE status IS NOT NULL
-                AND status::text ~* '${ATTRITION_PATTERN}'
-                AND updated_at >= date_trunc('month', CURRENT_DATE)
-            )::int
-          `
-        : '0';
+      // Attendance API Request
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0];
+      const logsPromise = this.fetchDeviceLogs(dateStr, dateStr);
 
-      const summaryQuery = `
-        SELECT
-          COUNT(*)::int AS total_employees,
-          COUNT(*) FILTER (WHERE LOWER(status::text) = 'active')::int AS active_employees,
-          COUNT(*) FILTER (
-            WHERE status IS NOT NULL
-              AND status::text ~* '${ATTRITION_PATTERN}'
-          )::int AS resigned_employees,
-          ${summaryLeftThisMonthClause} AS left_this_month
-        FROM users
-      `;
+      // Define optimized Queries
+      const summaryLeftClause = hEU ? `COUNT(*) FILTER (WHERE status IS NOT NULL AND status::text ~* '${ATTRITION_PATTERN}' AND updated_at >= date_trunc('month', CURRENT_DATE))::int` : '0';
 
-      const statusDistributionQuery = `
-        SELECT
-          COALESCE(NULLIF(TRIM(status::text), ''), 'Unknown') AS status_label,
-          COUNT(*)::int AS count
-        FROM users
-        GROUP BY 1
-        ORDER BY COUNT(*) DESC, status_label ASC
-      `;
+      const queries = {
+        summary: `SELECT COUNT(*)::int AS total_employees, COUNT(*) FILTER (WHERE LOWER(status::text) = 'active')::int AS active_employees, COUNT(*) FILTER (WHERE status IS NOT NULL AND status::text ~* '${ATTRITION_PATTERN}')::int AS resigned_employees, ${summaryLeftClause} AS left_this_month FROM users`,
+        status: `SELECT COALESCE(NULLIF(TRIM(status::text), ''), 'Unknown') AS status_label, COUNT(*)::int AS count FROM users GROUP BY 1 ORDER BY COUNT(*) DESC, status_label ASC`,
+        hiring: hEC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS hired FROM users WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS hired WHERE false',
+        designation: `SELECT COALESCE(NULLIF(TRIM(designation::text), ''), 'Unassigned') AS designation, COUNT(*)::int AS employees FROM users GROUP BY 1 ORDER BY employees DESC, designation ASC LIMIT 10`,
+        leaves: `SELECT COUNT(*)::int AS total_leaves, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved' OR LOWER(approved_by_status::text) = 'approved')::int AS approved_leaves, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR (approved_by_status IS NULL AND request_status IS NULL))::int AS pending_leaves, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected' OR LOWER(approved_by_status::text) = 'rejected')::int AS rejected_leaves, COUNT(*) FILTER (WHERE LOWER(hr_approval::text) = 'approved' OR LOWER(approval_hr::text) = 'approved')::int AS hr_approved FROM leave_request`,
+        monthlyLeaves: hLC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS leaves FROM leave_request WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS leaves WHERE false',
+        travels: `SELECT COUNT(*)::int AS total_travels, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_travels, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_travels, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_travels FROM request`,
+        monthlyTravels: hRC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS travels FROM request WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS travels WHERE false',
+        tickets: `SELECT COUNT(*)::int AS total_tickets, COUNT(*) FILTER (WHERE LOWER(status::text) = 'booked' OR LOWER(status::text) = 'completed')::int AS booked_tickets, COUNT(*) FILTER (WHERE LOWER(status::text) = 'pending' OR status IS NULL)::int AS pending_tickets, COALESCE(SUM(total_amount), 0)::numeric AS total_amount FROM ticket_book`,
+        monthlyTickets: hTC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS tickets, COALESCE(SUM(total_amount), 0)::numeric AS amount FROM ticket_book WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS tickets, 0 AS amount WHERE false',
+        resumes: `SELECT COUNT(*)::int AS total_candidates, COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'selected')::int AS selected_candidates, COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'pending' OR candidate_status IS NULL)::int AS pending_candidates, COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'rejected')::int AS rejected_candidates, COUNT(*) FILTER (WHERE LOWER(joined_status::text) = 'joined' OR LOWER(joined_status::text) = 'yes')::int AS joined_candidates, COUNT(*) FILTER (WHERE interviewer_status IS NOT NULL)::int AS interviewed_candidates FROM resume`,
+        monthlyResumes: hResC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS candidates FROM resume WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS candidates WHERE false',
+        visitors: `SELECT COUNT(*)::int AS total_visitors, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_visitors, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_visitors, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_visitors FROM plant_visitor`,
+        monthlyVisitors: hVC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS visitors FROM plant_visitor WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS visitors WHERE false',
+        activeEmpIDs: "SELECT employee_id FROM users WHERE LOWER(status::text) = 'active'"
+      };
 
-      const monthlyHiringQuery = hasEmployeeCreatedAt ? `
-        SELECT
-          TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
-          COUNT(*)::int AS hired
-        FROM users
-        WHERE created_at IS NOT NULL
-          AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
-        GROUP BY 1
-        ORDER BY 1
-      ` : 'SELECT NULL AS month, 0 AS hired WHERE false';
-
-      const designationQuery = `
-        SELECT
-          COALESCE(NULLIF(TRIM(designation::text), ''), 'Unassigned') AS designation,
-          COUNT(*)::int AS employees
-        FROM users
-        GROUP BY 1
-        ORDER BY employees DESC, designation ASC
-        LIMIT 10
-      `;
-
-      // ========== LEAVE REQUEST STATS ==========
-      const leaveStatsQuery = `
-        SELECT
-          COUNT(*)::int AS total_leaves,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved' OR LOWER(approved_by_status::text) = 'approved')::int AS approved_leaves,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR (approved_by_status IS NULL AND request_status IS NULL))::int AS pending_leaves,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected' OR LOWER(approved_by_status::text) = 'rejected')::int AS rejected_leaves,
-          COUNT(*) FILTER (WHERE LOWER(hr_approval::text) = 'approved' OR LOWER(approval_hr::text) = 'approved')::int AS hr_approved
-        FROM leave_request
-      `;
-
-      const monthlyLeaveQuery = hasLeaveCreatedAt ? `
-        SELECT
-          TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
-          COUNT(*)::int AS leaves
-        FROM leave_request
-        WHERE created_at IS NOT NULL
-          AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
-        GROUP BY 1
-        ORDER BY 1
-      ` : 'SELECT NULL AS month, 0 AS leaves WHERE false';
-
-      // ========== TRAVEL REQUEST STATS ==========
-      const travelStatsQuery = `
-        SELECT
-          COUNT(*)::int AS total_travels,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_travels,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_travels,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_travels
-        FROM request
-      `;
-
-      const monthlyTravelQuery = hasRequestCreatedAt ? `
-        SELECT
-          TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
-          COUNT(*)::int AS travels
-        FROM request
-        WHERE created_at IS NOT NULL
-          AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
-        GROUP BY 1
-        ORDER BY 1
-      ` : 'SELECT NULL AS month, 0 AS travels WHERE false';
-
-      // ========== TICKET STATS ==========
-      const ticketStatsQuery = `
-        SELECT
-          COUNT(*)::int AS total_tickets,
-          COUNT(*) FILTER (WHERE LOWER(status::text) = 'booked' OR LOWER(status::text) = 'completed')::int AS booked_tickets,
-          COUNT(*) FILTER (WHERE LOWER(status::text) = 'pending' OR status IS NULL)::int AS pending_tickets,
-          COALESCE(SUM(total_amount), 0)::numeric AS total_amount
-        FROM ticket_book
-      `;
-
-      const monthlyTicketQuery = hasTicketCreatedAt ? `
-        SELECT
-          TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
-          COUNT(*)::int AS tickets,
-          COALESCE(SUM(total_amount), 0)::numeric AS amount
-        FROM ticket_book
-        WHERE created_at IS NOT NULL
-          AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
-        GROUP BY 1
-        ORDER BY 1
-      ` : 'SELECT NULL AS month, 0 AS tickets, 0 AS amount WHERE false';
-
-      // ========== RESUME/CANDIDATE STATS ==========
-      const resumeStatsQuery = `
-        SELECT
-          COUNT(*)::int AS total_candidates,
-          COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'selected')::int AS selected_candidates,
-          COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'pending' OR candidate_status IS NULL)::int AS pending_candidates,
-          COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'rejected')::int AS rejected_candidates,
-          COUNT(*) FILTER (WHERE LOWER(joined_status::text) = 'joined' OR LOWER(joined_status::text) = 'yes')::int AS joined_candidates,
-          COUNT(*) FILTER (WHERE interviewer_status IS NOT NULL)::int AS interviewed_candidates
-        FROM resume
-      `;
-
-      const monthlyResumeQuery = hasResumeCreatedAt ? `
-        SELECT
-          TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
-          COUNT(*)::int AS candidates
-        FROM resume
-        WHERE created_at IS NOT NULL
-          AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
-        GROUP BY 1
-        ORDER BY 1
-      ` : 'SELECT NULL AS month, 0 AS candidates WHERE false';
-
-      // ========== PLANT VISITOR STATS ==========
-      const visitorStatsQuery = `
-        SELECT
-          COUNT(*)::int AS total_visitors,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_visitors,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_visitors,
-          COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_visitors
-        FROM plant_visitor
-      `;
-
-      const monthlyVisitorQuery = hasVisitorCreatedAt ? `
-        SELECT
-          TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month,
-          COUNT(*)::int AS visitors
-        FROM plant_visitor
-        WHERE created_at IS NOT NULL
-          AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months'
-        GROUP BY 1
-        ORDER BY 1
-      ` : 'SELECT NULL AS month, 0 AS visitors WHERE false';
-
-      // Execute all queries
+      // Execute DB Queries and API Calls IN PARALLEL
       const results = await Promise.all([
-        client.query(summaryQuery),
-        client.query(statusDistributionQuery),
-        hasEmployeeCreatedAt ? client.query(monthlyHiringQuery) : Promise.resolve({ rows: [] }),
-        client.query(designationQuery),
-        client.query(leaveStatsQuery),
-        hasLeaveCreatedAt ? client.query(monthlyLeaveQuery) : Promise.resolve({ rows: [] }),
-        client.query(travelStatsQuery),
-        hasRequestCreatedAt ? client.query(monthlyTravelQuery) : Promise.resolve({ rows: [] }),
-        client.query(ticketStatsQuery),
-        hasTicketCreatedAt ? client.query(monthlyTicketQuery) : Promise.resolve({ rows: [] }),
-        client.query(resumeStatsQuery),
-        hasResumeCreatedAt ? client.query(monthlyResumeQuery) : Promise.resolve({ rows: [] }),
-        client.query(visitorStatsQuery),
-        hasVisitorCreatedAt ? client.query(monthlyVisitorQuery) : Promise.resolve({ rows: [] }),
-        client.query("SELECT employee_id FROM users WHERE LOWER(status::text) = 'active'")
+        client.query(queries.summary),
+        client.query(queries.status),
+        client.query(queries.hiring),
+        client.query(queries.designation),
+        client.query(queries.leaves),
+        client.query(queries.monthlyLeaves),
+        client.query(queries.travels),
+        client.query(queries.monthlyTravels),
+        client.query(queries.tickets),
+        client.query(queries.monthlyTickets),
+        client.query(queries.resumes),
+        client.query(queries.monthlyResumes),
+        client.query(queries.visitors),
+        client.query(queries.monthlyVisitors),
+        client.query(queries.activeEmpIDs),
+        logsPromise
       ]);
 
-      const [
-        summaryResult,
-        statusResult,
-        hiringResult,
-        designationResult,
-        leaveStatsResult,
-        monthlyLeaveResult,
-        travelStatsResult,
-        monthlyTravelResult,
-        ticketStatsResult,
-        monthlyTicketResult,
-        resumeStatsResult,
-        monthlyResumeResult,
-        visitorStatsResult,
-        monthlyVisitorResult
-      ] = results;
+      const [sRes, stRes, hRes, dRes, lRes, mlRes, tRes, mtRes, tkRes, mtkRes, rRes, mrRes, vRes, mvRes, actRes, allLogs] = results;
 
-      // Calculate Attendance Stats
-      let presentCount = 0;
-      let absentCount = 0;
-      const totalActiveEmployees = (results[14] && results[14].rows) ? results[14].rows.length : 0; // results[14] is the active employees query
-      const activeEmployeeCodes = (results[14] && results[14].rows) ? results[14].rows.map(e => e.employee_id) : [];
+      // Attendance Processing
+      const totalActive = actRes.rows.length;
+      const activeCodes = actRes.rows.map(e => String(e.employee_id));
+      const logsCodes = new Set(allLogs.filter(l => l && l.EmployeeCode).map(l => String(l.EmployeeCode)));
+      const presentCount = activeCodes.filter(c => logsCodes.has(c)).length;
 
-      try {
-        const today = new Date();
-        const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
-
-        // Fetch logs from all devices
-        const logPromises = DEVICE_SERIALS.map(serial =>
-          axios.get(DEVICE_API_URL, {
-            params: {
-              APIKey: API_KEY,
-              SerialNumber: serial,
-              FromDate: dateStr,
-              ToDate: dateStr
-            }
-          }).then(res => res.data).catch(err => {
-            console.error(`Error fetching logs for device ${serial}:`, err.message);
-            return [];
-          })
-        );
-
-        const logsResults = await Promise.all(logPromises);
-        // logsResults is an array of arrays (or whatever the API returns)
-        // The API returns the list directly according to the user prompt.
-
-        const allLogs = logsResults.flat();
-
-        // Get unique employee codes from logs
-        const PresentEmployeeCodes = new Set(
-          allLogs
-            .filter(log => log && log.EmployeeCode)
-            .map(log => log.EmployeeCode)
-        );
-
-        // Calculate Present: Count of Active Employees who are in the logs
-        // We filter activeEmployeeCodes to see which ones are in PresentEmployeeCodes
-        presentCount = activeEmployeeCodes.filter(code => PresentEmployeeCodes.has(code)).length;
-
-        // Absent: Total Active - Present
-        absentCount = totalActiveEmployees - presentCount;
-
-      } catch (attendanceError) {
-        console.error('Error calculating attendance stats:', attendanceError);
-        // Fallback to 0 if error, or just continue
-      }
-
-      // Process results
-      const summaryRow = summaryResult.rows[0] || {
-        total_employees: 0,
-        active_employees: 0,
-        resigned_employees: 0,
-        left_this_month: 0
-      };
-
-      const leaveStatsRow = leaveStatsResult.rows[0] || {
-        total_leaves: 0,
-        approved_leaves: 0,
-        pending_leaves: 0,
-        rejected_leaves: 0,
-        hr_approved: 0
-      };
-
-      const travelStatsRow = travelStatsResult.rows[0] || {
-        total_travels: 0,
-        approved_travels: 0,
-        pending_travels: 0,
-        rejected_travels: 0
-      };
-
-      const ticketStatsRow = ticketStatsResult.rows[0] || {
-        total_tickets: 0,
-        booked_tickets: 0,
-        pending_tickets: 0,
-        total_amount: 0
-      };
-
-      const resumeStatsRow = resumeStatsResult.rows[0] || {
-        total_candidates: 0,
-        selected_candidates: 0,
-        pending_candidates: 0,
-        rejected_candidates: 0,
-        joined_candidates: 0,
-        interviewed_candidates: 0
-      };
-
-      const visitorStatsRow = visitorStatsResult.rows[0] || {
-        total_visitors: 0,
-        approved_visitors: 0,
-        pending_visitors: 0,
-        rejected_visitors: 0
-      };
-
-      // Build monthly data
       const months = buildMonthWindow(MONTH_WINDOW);
-      const hiringMap = new Map(hiringResult.rows.map((row) => [row.month, row.hired]));
-      const leaveMap = new Map(monthlyLeaveResult.rows.map((row) => [row.month, row.leaves]));
-      const travelMap = new Map(monthlyTravelResult.rows.map((row) => [row.month, row.travels]));
-      const ticketMap = new Map(monthlyTicketResult.rows.map((row) => [row.month, row.tickets]));
-      const ticketAmountMap = new Map(monthlyTicketResult.rows.map((row) => [row.month, parseFloat(row.amount || 0)]));
-      const resumeMap = new Map(monthlyResumeResult.rows.map((row) => [row.month, row.candidates]));
-      const visitorMap = new Map(monthlyVisitorResult.rows.map((row) => [row.month, row.visitors]));
-
-      const monthlyHiringVsAttrition = months.map(({ key, label }) => ({
-        month: label,
-        hired: hiringMap.get(key) || 0,
-        left: 0 // Can be calculated from employee updates if needed
-      }));
-
-      const monthlyRequestTrends = months.map(({ key, label }) => ({
-        month: label,
-        leaves: leaveMap.get(key) || 0,
-        travels: travelMap.get(key) || 0,
-        tickets: ticketMap.get(key) || 0,
-        visitors: visitorMap.get(key) || 0
-      }));
-
-      const monthlyTicketRevenue = months.map(({ key, label }) => ({
-        month: label,
-        amount: ticketAmountMap.get(key) || 0
-      }));
+      const hiringMap = new Map(hRes.rows.map(r => [r.month, r.hired]));
+      const lMap = new Map(mlRes.rows.map(r => [r.month, r.leaves]));
+      const tMap = new Map(mtRes.rows.map(r => [r.month, r.travels]));
+      const tkMap = new Map(mtkRes.rows.map(r => [r.month, r.tickets]));
+      const tkaMap = new Map(mtkRes.rows.map(r => [r.month, parseFloat(r.amount || 0)]));
+      const rMap = new Map(mrRes.rows.map(r => [r.month, r.candidates]));
+      const vMap = new Map(mvRes.rows.map(r => [r.month, r.visitors]));
 
       return {
-        summary: {
-          totalEmployees: summaryRow.total_employees,
-          activeEmployees: summaryRow.active_employees,
-          resignedEmployees: summaryRow.resigned_employees,
-          leftThisMonth: summaryRow.left_this_month
-        },
-        leaveRequests: {
-          total: leaveStatsRow.total_leaves,
-          approved: leaveStatsRow.approved_leaves,
-          pending: leaveStatsRow.pending_leaves,
-          rejected: leaveStatsRow.rejected_leaves,
-          hrApproved: leaveStatsRow.hr_approved
-        },
-        travelRequests: {
-          total: travelStatsRow.total_travels,
-          approved: travelStatsRow.approved_travels,
-          pending: travelStatsRow.pending_travels,
-          rejected: travelStatsRow.rejected_travels
-        },
-        tickets: {
-          total: ticketStatsRow.total_tickets,
-          booked: ticketStatsRow.booked_tickets,
-          pending: ticketStatsRow.pending_tickets,
-          totalAmount: parseFloat(ticketStatsRow.total_amount || 0)
-        },
-        resumes: {
-          total: resumeStatsRow.total_candidates,
-          selected: resumeStatsRow.selected_candidates,
-          pending: resumeStatsRow.pending_candidates,
-          rejected: resumeStatsRow.rejected_candidates,
-          joined: resumeStatsRow.joined_candidates,
-          interviewed: resumeStatsRow.interviewed_candidates
-        },
-        visitors: {
-          total: visitorStatsRow.total_visitors,
-          approved: visitorStatsRow.approved_visitors,
-          pending: visitorStatsRow.pending_visitors,
-          rejected: visitorStatsRow.rejected_visitors
-        },
-        statusDistribution: statusResult.rows.map((row) => ({
-          label: row.status_label,
-          value: row.count
-        })),
-        monthlyHiringVsAttrition,
-        monthlyRequestTrends,
-        monthlyTicketRevenue,
-        designationCounts: designationResult.rows.map((row) => ({
-          designation: row.designation,
-          employees: row.employees
-        })),
-        attendance: {
-          present: presentCount,
-          absent: absentCount,
-          totalActive: totalActiveEmployees,
-          date: new Date().toISOString().split('T')[0]
-        }
+        summary: { totalEmployees: sRes.rows[0].total_employees, activeEmployees: sRes.rows[0].active_employees, resignedEmployees: sRes.rows[0].resigned_employees, leftThisMonth: sRes.rows[0].left_this_month },
+        leaveRequests: { total: lRes.rows[0].total_leaves, approved: lRes.rows[0].approved_leaves, pending: lRes.rows[0].pending_leaves, rejected: lRes.rows[0].rejected_leaves, hrApproved: lRes.rows[0].hr_approved },
+        travelRequests: { total: tRes.rows[0].total_travels, approved: tRes.rows[0].approved_travels, pending: tRes.rows[0].pending_travels, rejected: tRes.rows[0].rejected_travels },
+        tickets: { total: tkRes.rows[0].total_tickets, booked: tkRes.rows[0].booked_tickets, pending: tkRes.rows[0].pending_tickets, totalAmount: parseFloat(tkRes.rows[0].total_amount || 0) },
+        resumes: { total: rRes.rows[0].total_candidates, selected: rRes.rows[0].selected_candidates, pending: rRes.rows[0].pending_candidates, rejected: rRes.rows[0].rejected_candidates, joined: rRes.rows[0].joined_candidates, interviewed: rRes.rows[0].interviewed_candidates },
+        visitors: { total: vRes.rows[0].total_visitors, approved: vRes.rows[0].approved_visitors, pending: vRes.rows[0].pending_visitors, rejected: vRes.rows[0].rejected_visitors },
+        statusDistribution: stRes.rows.map(r => ({ label: r.status_label, value: r.count })),
+        monthlyHiringVsAttrition: months.map(m => ({ month: m.label, hired: hiringMap.get(m.key) || 0, left: 0 })),
+        monthlyRequestTrends: months.map(m => ({ month: m.label, leaves: lMap.get(m.key) || 0, travels: tMap.get(m.key) || 0, tickets: tkMap.get(m.key) || 0, visitors: vMap.get(m.key) || 0 })),
+        monthlyTicketRevenue: months.map(m => ({ month: m.label, amount: tkaMap.get(m.key) || 0 })),
+        designationCounts: dRes.rows.map(r => ({ designation: r.designation, employees: r.employees })),
+        attendance: { present: presentCount, absent: totalActive - presentCount, totalActive, date: dateStr }
       };
-    } catch (error) {
-      throw new Error(`Failed to fetch dashboard stats: ${error.message}`);
+    } finally {
+      client.release();
+    }
+  }
+
+  async getEmployeeDashboardStats(userId, employeeId, monthStr) {
+    const client = await pool.connect();
+    try {
+      let finalUserId = userId;
+      if (!finalUserId) {
+        const userRes = await client.query('SELECT id FROM users WHERE employee_id = $1', [employeeId]);
+        finalUserId = userRes.rows[0]?.id;
+      }
+
+      const today = new Date();
+      let startDate, endDate;
+      if (monthStr && monthStr.includes('-')) {
+        const parts = monthStr.split('-');
+        startDate = new Date(parts[0], parts[1] - 1, 1);
+        endDate = new Date(parts[0], parts[1], 0);
+      } else {
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      }
+
+      const toS = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const fS = toS(startDate), fE = toS(endDate);
+
+      // Start everything in parallel
+      const [leaveRes, travelRes, ticketRes, visitRes, allLogs] = await Promise.all([
+        client.query(`SELECT * FROM leave_request WHERE employee_id = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [finalUserId, fS, fE]),
+        client.query(`SELECT * FROM request WHERE employee_code = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [employeeId, fS, fE]),
+        client.query(`SELECT * FROM ticket_book WHERE (request_employee_code = $1 OR booked_employee_code = $1) AND created_at::date BETWEEN $2 AND $3 ORDER BY created_at DESC`, [employeeId, fS, fE]),
+        client.query(`SELECT * FROM plant_visitor WHERE employee_code = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [employeeId, fS, fE]),
+        this.fetchDeviceLogs(fS, fE)
+      ]);
+
+      const empLogs = allLogs.filter(l => l && String(l.EmployeeCode) === String(employeeId));
+      const getNorm = (s) => {
+        if (!s) return '';
+        let d = s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s);
+        if (d.includes('/')) {
+          const p = d.split('/');
+          if (p.length === 3) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        }
+        if (d.includes('-')) {
+          const p = d.split('-');
+          if (p[0].length <= 2 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        }
+        return d;
+      };
+
+      let present = 0, absent = 0;
+      const attMap = {};
+      const days = endDate.getDate();
+      for (let d = 1; d <= days; d++) {
+        const dt = new Date(startDate.getFullYear(), startDate.getMonth(), d);
+        const ds = toS(dt);
+        if (dt > today) { attMap[ds] = '-'; }
+        else {
+          const has = empLogs.some(l => getNorm(l.LogDate) === ds);
+          attMap[ds] = has ? 'P' : 'A';
+          if (has) present++; else absent++;
+        }
+      }
+
+      return {
+        attendance: { present, absent, totalWorkingDays: present + absent, details: attMap, month: monthStr || startDate.toISOString().slice(0, 7) },
+        leaves: leaveRes.rows, travels: travelRes.rows, tickets: ticketRes.rows, visits: visitRes.rows
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  async getEmployeeDetails(employeeId) {
+    const client = await pool.connect();
+    try {
+      const uRes = await client.query('SELECT * FROM users WHERE employee_id = $1', [employeeId]);
+      if (uRes.rows.length === 0) throw new Error('Employee not found');
+      const user = uRes.rows[0];
+
+      const now = new Date();
+      const sD = new Date(now.getFullYear(), now.getMonth(), 1);
+      const eD = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const toS = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      // Parallel Fetch
+      const [lRes, tRes, tkRes, vRes, allLogs] = await Promise.all([
+        client.query('SELECT * FROM leave_request WHERE employee_id = $1 ORDER BY from_date DESC', [user.id]),
+        client.query('SELECT * FROM request WHERE employee_code = $1 ORDER BY from_date DESC', [employeeId]),
+        client.query('SELECT * FROM ticket_book WHERE request_employee_code = $1 OR booked_employee_code = $1 ORDER BY created_at DESC', [employeeId]),
+        client.query('SELECT * FROM plant_visitor WHERE employee_code = $1 ORDER BY from_date DESC', [employeeId]),
+        this.fetchDeviceLogs(toS(sD), toS(eD))
+      ]);
+
+      const empLogs = allLogs.filter(l => l && String(l.EmployeeCode) === String(employeeId));
+      const getNorm = (s) => uRes.rows[0] ? (s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s)) : ''; // Simple mock norm
+
+      let p = 0, a = 0;
+      const attMap = {};
+      for (let d = 1; d <= eD.getDate(); d++) {
+        const dt = new Date(sD.getFullYear(), sD.getMonth(), d);
+        const ds = toS(dt);
+        if (dt <= now) {
+          const has = empLogs.some(l => {
+            const nd = l.LogDate.includes('T') ? l.LogDate.split('T')[0] : (l.LogDate.includes(' ') ? l.LogDate.split(' ')[0] : l.LogDate);
+            return nd === ds || (nd.includes('/') && nd.split('/').reverse().join('-') === ds);
+          });
+          if (has) { p++; attMap[ds] = 'P'; } else { a++; attMap[ds] = 'A'; }
+        }
+      }
+
+      return {
+        profile: user,
+        attendanceSummary: { month: new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(now), present: p, absent: a, total: p + a, details: attMap },
+        leaves: lRes.rows, travels: tRes.rows, tickets: tkRes.rows, visits: vRes.rows
+      };
     } finally {
       client.release();
     }
