@@ -3,7 +3,7 @@ const pool = require('../config/db');
 class ResumeModel {
   async findAll() {
     const query = `
-      SELECT * FROM resume
+      SELECT * FROM resume_request
       ORDER BY created_at ASC
     `;
     const result = await pool.query(query);
@@ -11,7 +11,7 @@ class ResumeModel {
   }
 
   async findById(id) {
-    const query = 'SELECT * FROM resume WHERE id = $1';
+    const query = 'SELECT * FROM resume_request WHERE id = $1';
     const result = await pool.query(query, [id]);
     return result.rows[0] || null;
   }
@@ -21,7 +21,7 @@ class ResumeModel {
 
     // Check if the table is empty or has data
     const query = `
-      INSERT INTO resume (
+      INSERT INTO resume_request (
         id,
         candidate_name,
         candidate_email,
@@ -44,7 +44,7 @@ class ResumeModel {
         created_at,
         updated_at
       ) VALUES (
-        (SELECT COALESCE(MAX(id), 0) + 1 FROM resume),
+        (SELECT COALESCE(MAX(id), 0) + 1 FROM resume_request),
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       )
       RETURNING *
@@ -97,7 +97,7 @@ class ResumeModel {
 
   async update(id, data) {
     const query = `
-      UPDATE resume
+      UPDATE resume_request
       SET
         candidate_name = COALESCE($1, candidate_name),
         candidate_email = COALESCE($2, candidate_email),
@@ -149,7 +149,7 @@ class ResumeModel {
   }
 
   async delete(id) {
-    const query = 'DELETE FROM resume WHERE id = $1 RETURNING *';
+    const query = 'DELETE FROM resume_request WHERE id = $1 RETURNING *';
     const result = await pool.query(query, [id]);
     return result.rows[0] || null;
   }
@@ -158,7 +158,7 @@ class ResumeModel {
   async findSelectedCandidates() {
     const query = `
     SELECT *
-    FROM resume
+    FROM resume_request
     WHERE candidate_status = 'Selected'
     ORDER BY updated_at DESC
   `;
