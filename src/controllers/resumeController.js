@@ -57,14 +57,8 @@ class ResumeController {
 
   async createResume(req, res, next) {
     try {
-      console.log('📬 CONTROLLER: createResume called');
-      console.log('📬 Headers:', req.headers['content-type']);
-
       // Handle FormData - multer puts fields in req.body
       let payload = {};
-
-      console.log('📬 req.body:', JSON.stringify(req.body, null, 2));
-      console.log('📬 req.file:', req.file);
 
       // If req.body is already an object (from multer), use it directly
       if (req.body && typeof req.body === 'object') {
@@ -73,9 +67,6 @@ class ResumeController {
         // Try to parse as JSON if it's a string
         payload = this.normalizeBody(req.body) || {};
       }
-
-      console.log('📬 Payload extracted:', JSON.stringify(payload, null, 2));
-
 
       // Convert empty strings to null for optional fields
       Object.keys(payload).forEach(key => {
@@ -86,14 +77,10 @@ class ResumeController {
 
       const resumeUrl = this.getResumeUrl(req);
       if (resumeUrl) {
-        console.log('📬 File found:', req.file.filename);
         payload.resume = resumeUrl;
-      } else {
-        console.log('📬 No file found in request');
       }
 
       const resume = await resumeService.createResume(payload);
-      console.log('📬 Success! Resume created with ID:', resume.id);
       res.status(201).json({
         success: true,
         message: 'Resume created successfully',

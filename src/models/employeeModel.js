@@ -121,11 +121,6 @@ async function create(data) {
   const pageAccessInput = resolvePageAccessInput(data);
   const serializedPageAccess = serializePageAccess(pageAccessInput);
 
-  // Debug logging
-  console.log('Create Employee - page_access input:', pageAccessInput);
-  console.log('Create Employee - serialized page_access:', serializedPageAccess);
-  console.log('Create Employee - data keys:', Object.keys(data));
-
   const values = [
     data.employee_id,
     data.user_name,
@@ -143,7 +138,6 @@ async function create(data) {
 
   const result = await pool.query(query, values);
   const created = hydrateEmployeePageAccess(result.rows[0]);
-  console.log('Create Employee - Result page_access:', created?.page_access);
   return created;
 }
 
@@ -170,14 +164,6 @@ async function update(id, data) {
   const pageAccessInput = resolvePageAccessInput(data);
   const serializedPageAccess = serializePageAccess(pageAccessInput);
 
-  // Debug logging
-  console.log('Update Employee - ID:', id);
-  console.log('Update Employee - page_access input:', pageAccessInput);
-  console.log('Update Employee - serialized page_access:', serializedPageAccess);
-  console.log('Update Employee - data keys:', Object.keys(data));
-  console.log('Update Employee - email_id:', data.email_id);
-  console.log('Update Employee - number:', data.number || data.mobile_number);
-
   const values = [
     data.employee_id,
     data.user_name,
@@ -196,7 +182,6 @@ async function update(id, data) {
 
   const result = await pool.query(query, values);
   const updated = hydrateEmployeePageAccess(result.rows[0]);
-  console.log('Update Employee - Result page_access:', updated?.page_access);
   return updated;
 }
 

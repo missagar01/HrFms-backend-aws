@@ -16,7 +16,6 @@ class TicketBookModel {
     return result.rows[0] || null;
   }
 
-
   async create(data) {
     const query = `
       INSERT INTO ticket_book (

@@ -2,6 +2,7 @@ const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
 const helmet = require('helmet');
+const compression = require('compression');
 const path = require('path');
 
 const employeeRoutes = require('./routes/employeeRoutes');
@@ -19,6 +20,18 @@ const app = express();
 // Honor proxy headers so req.protocol/req.get('host') reflect the client-facing address
 app.set('trust proxy', true);
 
+// ⚡ PERFORMANCE: Response compression (70-85% size reduction)
+app.use(compression({
+  level: 6,              // Good balance between speed and compression
+  threshold: 1024,       // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;      // Skip if client doesn't want compression
+    }
+    return compression.filter(req, res);
+  }
+}));
+
 // Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
@@ -35,15 +48,6 @@ app.use(express.json());
 app.use(express.text({ type: 'text/plain' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Global logging for all POST requests to debug submission issues
-app.use((req, res, next) => {
-  if (req.method === 'POST') {
-    console.log(`🚀 [${new Date().toISOString()}] POST ${req.originalUrl}`);
-    console.log(`🚀 Type: ${req.headers['content-type']}`);
-  }
-  next();
-});
-
 // JSON parsing hack for text/plain bodies (Postman support)
 app.use((req, res, next) => {
   if (typeof req.body === 'string') {
@@ -51,7 +55,6 @@ app.use((req, res, next) => {
     if (trimmedBody.startsWith('{') || trimmedBody.startsWith('[')) {
       try {
         req.body = JSON.parse(req.body);
-        console.log('🟡 Parsed JSON body:', req.body);
       } catch (error) {
         return res.status(400).json({ success: false, message: 'Invalid JSON payload' });
       }
@@ -67,7 +70,6 @@ if (process.env.NODE_ENV !== 'test') {
 
 // Serve static files (uploaded images)
 const uploadsPath = path.resolve(__dirname, '../uploads');
-console.log('📂 Serving static files from:', uploadsPath);
 app.use('/uploads', express.static(uploadsPath));
 
 // Health check endpoint

@@ -17,7 +17,6 @@ class RequestModel {
   }
 
   async create(data) {
-    console.log('📝 MODEL: RequestModel.create called with:', JSON.stringify(data, null, 2));
     const query = `
       WITH next_vals AS (
         SELECT COALESCE(MAX(id), 0) + 1 AS id FROM request
@@ -84,7 +83,6 @@ class RequestModel {
 
     try {
       const result = await pool.query(query, values);
-      console.log('📝 Insert success! Request No:', result.rows[0]?.request_no);
       return result.rows[0];
     } catch (error) {
       console.error('❌ MODEL ERROR in RequestModel.create:', error.message);

@@ -17,8 +17,6 @@ class ResumeModel {
   }
 
   async create(data) {
-    console.log('📝 MODEL: ResumeModel.create called');
-
     // Check if the table is empty or has data
     const query = `
       INSERT INTO resume_request (
@@ -72,19 +70,11 @@ class ResumeModel {
     ];
 
     try {
-      console.log('📝 DB QUERY:', query.replace(/\s+/g, ' '));
-      console.log('📝 DB VALUES:', JSON.stringify(values));
       const result = await pool.query(query, values);
-      console.log('📝 DB RESULT:', JSON.stringify({
-        rowCount: result.rowCount,
-        rows: result.rows
-      }, null, 2));
 
       if (result.rows && result.rows.length > 0) {
-        console.log('📝 DB SUCCESS: Resume inserted with ID:', result.rows[0].id);
         return result.rows[0];
       } else {
-        console.warn('⚠️ DB WARNING: Insert succeeded but no rows returned!');
         return null;
       }
 
@@ -166,9 +156,6 @@ class ResumeModel {
     return result.rows;
   }
 
-
 }
-
-
 
 module.exports = new ResumeModel();

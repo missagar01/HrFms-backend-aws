@@ -23,15 +23,10 @@ class ResumeService {
 
   async createResume(data) {
     try {
-      console.log('🚀 SERVICE: createResume called');
       const normalizedData = this.normalizeResumeData(data);
-      console.log('🚀 SERVICE: Data normalized');
       this.validateResumeData(normalizedData);
-      console.log('🚀 SERVICE: Data validated, calling model');
       const result = await resumeModel.create(normalizedData);
-      console.log('🚀 SERVICE: Model returned:', JSON.stringify(result, null, 2));
       return result;
-
     } catch (error) {
       console.error('❌ SERVICE ERROR in createResume:', error.message);
       throw new Error(`Failed to create resume: ${error.message}`);
@@ -61,9 +56,7 @@ class ResumeService {
           normalized[field] = date.toISOString();
         } else {
           // If it's a name like "Neha Singh", we set to null for now 
-          // because the DB column is TIMESTAMP.
-          console.log(`⚠️ Warning: Field ${field} is not a valid date: "${val}". Set to null.`);
-          normalized[field] = null;
+          // because the DB column is TIMESTAMP.normalized[field] = null;
         }
       }
     });

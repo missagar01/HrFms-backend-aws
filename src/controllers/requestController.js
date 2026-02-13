@@ -35,16 +35,7 @@ class RequestController {
 
   async createRequest(req, res, next) {
     try {
-      console.log('🔴 === CONTROLLER: Raw data received from frontend ===');
-      console.log('🔴 from_city:', req.body.from_city, 'type:', typeof req.body.from_city);
-      console.log('🔴 to_city:', req.body.to_city, 'type:', typeof req.body.to_city);
-      console.log('🔴 Full body:', JSON.stringify(req.body, null, 2));
-      
       const request = await requestService.createRequest(req.body);
-      console.log('🔴 === CONTROLLER: Created request ===');
-      console.log('🔴 Created from_city:', request?.from_city);
-      console.log('🔴 Created to_city:', request?.to_city);
-      console.log('🔴 Full created request:', JSON.stringify(request, null, 2));
       res.status(201).json({
         success: true,
         message: 'Request created successfully',

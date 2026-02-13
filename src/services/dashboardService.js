@@ -8,6 +8,97 @@ const DEVICE_API_URL = 'http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs';
 const MONTH_WINDOW = 6;
 const ATTRITION_PATTERN = 'resign|left|terminated|separate';
 
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeEmployeeCode(value) {
+  const text = String(value ?? '').trim().toUpperCase();
+  if (!text) return '';
+  if (/^\d+$/.test(text)) return String(Number(text));
+
+  const prefixed = text.match(/^([A-Z]+)0*(\d+)$/);
+  if (prefixed) return `${prefixed[1]}${Number(prefixed[2])}`;
+
+  return text;
+}
+
+function normalizeLogDate(value) {
+  const source = String(value ?? '').trim();
+  if (!source) return '';
+
+  const datePart = source.includes('T')
+    ? source.split('T')[0]
+    : (source.includes(' ') ? source.split(' ')[0] : source);
+
+  if (datePart.includes('/')) {
+    const [d, m, y] = datePart.split('/');
+    if (d && m && y) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  if (datePart.includes('-')) {
+    const parts = datePart.split('-');
+    if (parts.length === 3 && parts[0].length <= 2 && parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+  }
+
+  return datePart;
+}
+
+function extractDeviceLogs(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+
+  const possibleArrays = [
+    payload.data,
+    payload.Data,
+    payload.logs,
+    payload.Logs,
+    payload.result,
+    payload.Result
+  ];
+
+  for (const value of possibleArrays) {
+    if (Array.isArray(value)) return value;
+  }
+
+  return [];
+}
+
+function normalizePunchDirection(log) {
+  if (!log || typeof log !== 'object') return '';
+
+  const rawDirection = [
+    log.PunchDirection,
+    log.InOut,
+    log.InOutMode,
+    log.IOType,
+    log.Direction,
+    log.PunchType,
+    log.LogType,
+    log.CheckType
+  ].find(v => v !== undefined && v !== null && String(v).trim() !== '');
+
+  if (rawDirection === undefined) return '';
+
+  const text = String(rawDirection).trim().toLowerCase();
+  if (!text) return '';
+  if (text.includes('in')) return 'in';
+  if (text.includes('out')) return 'out';
+
+  if (/^\d+$/.test(text)) {
+    const code = Number(text);
+    if (code === 0 || code === 1) return 'in';
+    if (code === 2 || code === 3) return 'out';
+  }
+
+  return '';
+}
+
 function buildMonthWindow(count) {
   const now = new Date();
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -47,13 +138,28 @@ class DashboardService {
     const logPromises = DEVICE_SERIALS.map(serial =>
       axios.get(DEVICE_API_URL, {
         params: { APIKey: API_KEY, SerialNumber: serial, FromDate: fromDate, ToDate: toDate }
-      }).then(res => res.data).catch(err => {
+      }).then(res => ({
+        serial,
+        logs: extractDeviceLogs(res.data),
+        error: null
+      })).catch(err => {
         console.error(`Error fetching logs for device ${serial}:`, err.message);
-        return [];
+        return {
+          serial,
+          logs: [],
+          error: err.message || 'Unknown device error'
+        };
       })
     );
     const results = await Promise.all(logPromises);
-    return results.flat();
+    return {
+      logs: results.flatMap(r => r.logs),
+      deviceStatus: results.map(r => ({
+        serial: r.serial,
+        ok: !r.error,
+        error: r.error
+      }))
+    };
   }
 
   async getDashboardStats() {
@@ -62,39 +168,122 @@ class DashboardService {
       // Parallelize Column Checks
       const checkPromises = [
         this.hasColumn(client, 'users', 'created_at'),
-        this.hasColumn(client, 'users', 'updated_at'),
+        this.hasColumn(client, 'users', 'leave_date'),
         this.hasColumn(client, 'leave_request', 'created_at'),
         this.hasColumn(client, 'request', 'created_at'),
         this.hasColumn(client, 'ticket_book', 'created_at'),
         this.hasColumn(client, 'resume_request', 'created_at'),
         this.hasColumn(client, 'plant_visitor', 'created_at')
       ];
-      const [hEC, hEU, hLC, hRC, hTC, hResC, hVC] = await Promise.all(checkPromises);
+      const [hEC, hLD, hLC, hRC, hTC, hResC, hVC] = await Promise.all(checkPromises);
 
       // Attendance API Request
-      const today = new Date();
-      const dateStr = today.toISOString().split('T')[0];
+      const dateStr = getLocalDateString();
       const logsPromise = this.fetchDeviceLogs(dateStr, dateStr);
 
       // Define optimized Queries
-      const summaryLeftClause = hEU ? `COUNT(*) FILTER (WHERE status IS NOT NULL AND status::text ~* '${ATTRITION_PATTERN}' AND updated_at >= date_trunc('month', CURRENT_DATE))::int` : '0';
+      const summaryLeftClause = hLD ? `COUNT(*) FILTER (WHERE status_raw ~* '${ATTRITION_PATTERN}' AND leave_date >= date_trunc('month', CURRENT_DATE))::int` : '0';
 
       const queries = {
-        summary: `SELECT COUNT(*)::int AS total_employees, COUNT(*) FILTER (WHERE LOWER(status::text) = 'active')::int AS active_employees, COUNT(*) FILTER (WHERE status IS NOT NULL AND status::text ~* '${ATTRITION_PATTERN}')::int AS resigned_employees, ${summaryLeftClause} AS left_this_month FROM users`,
+        summary: `
+          SELECT
+            COUNT(*)::int AS total_employees,
+            COUNT(*) FILTER (WHERE status_norm = 'active')::int AS active_employees,
+            COUNT(*) FILTER (WHERE status_raw ~* '${ATTRITION_PATTERN}')::int AS resigned_employees,
+            ${summaryLeftClause} AS left_this_month
+          FROM (
+            SELECT
+              LOWER(TRIM(COALESCE(status::text, ''))) AS status_norm,
+              status::text AS status_raw,
+              leave_date
+            FROM users
+          ) u
+        `,
         status: `SELECT COALESCE(NULLIF(TRIM(status::text), ''), 'Unknown') AS status_label, COUNT(*)::int AS count FROM users GROUP BY 1 ORDER BY COUNT(*) DESC, status_label ASC`,
         hiring: hEC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS hired FROM users WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS hired WHERE false',
         designation: `SELECT COALESCE(NULLIF(TRIM(designation::text), ''), 'Unassigned') AS designation, COUNT(*)::int AS employees FROM users GROUP BY 1 ORDER BY employees DESC, designation ASC LIMIT 10`,
-        leaves: `SELECT COUNT(*)::int AS total_leaves, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved' OR LOWER(approved_by_status::text) = 'approved')::int AS approved_leaves, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR (approved_by_status IS NULL AND request_status IS NULL))::int AS pending_leaves, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected' OR LOWER(approved_by_status::text) = 'rejected')::int AS rejected_leaves, COUNT(*) FILTER (WHERE LOWER(hr_approval::text) = 'approved' OR LOWER(approval_hr::text) = 'approved')::int AS hr_approved FROM leave_request`,
+        leaves: `
+          SELECT
+            COUNT(*)::int AS total_leaves,
+            COUNT(*) FILTER (WHERE request_status_norm = 'approved' OR approved_by_status_norm = 'approved')::int AS approved_leaves,
+            COUNT(*) FILTER (WHERE request_status_norm = 'pending' OR (approved_by_status_raw IS NULL AND request_status_raw IS NULL))::int AS pending_leaves,
+            COUNT(*) FILTER (WHERE request_status_norm = 'rejected' OR approved_by_status_norm = 'rejected')::int AS rejected_leaves,
+            COUNT(*) FILTER (WHERE hr_approval_norm = 'approved' OR approval_hr_norm = 'approved')::int AS hr_approved
+          FROM (
+            SELECT
+              request_status AS request_status_raw,
+              approved_by_status AS approved_by_status_raw,
+              LOWER(COALESCE(request_status::text, '')) AS request_status_norm,
+              LOWER(COALESCE(approved_by_status::text, '')) AS approved_by_status_norm,
+              LOWER(COALESCE(hr_approval::text, '')) AS hr_approval_norm,
+              LOWER(COALESCE(approval_hr::text, '')) AS approval_hr_norm
+            FROM leave_request
+          ) l
+        `,
         monthlyLeaves: hLC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS leaves FROM leave_request WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS leaves WHERE false',
-        travels: `SELECT COUNT(*)::int AS total_travels, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_travels, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_travels, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_travels FROM request`,
+        travels: `
+          SELECT
+            COUNT(*)::int AS total_travels,
+            COUNT(*) FILTER (WHERE request_status_norm = 'approved')::int AS approved_travels,
+            COUNT(*) FILTER (WHERE request_status_norm = 'pending' OR request_status_raw IS NULL)::int AS pending_travels,
+            COUNT(*) FILTER (WHERE request_status_norm = 'rejected')::int AS rejected_travels
+          FROM (
+            SELECT
+              request_status AS request_status_raw,
+              LOWER(COALESCE(request_status::text, '')) AS request_status_norm
+            FROM request
+          ) r
+        `,
         monthlyTravels: hRC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS travels FROM request WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS travels WHERE false',
-        tickets: `SELECT COUNT(*)::int AS total_tickets, COUNT(*) FILTER (WHERE LOWER(status::text) = 'booked' OR LOWER(status::text) = 'completed')::int AS booked_tickets, COUNT(*) FILTER (WHERE LOWER(status::text) = 'pending' OR status IS NULL)::int AS pending_tickets, COALESCE(SUM(total_amount), 0)::numeric AS total_amount FROM ticket_book`,
+        tickets: `
+          SELECT
+            COUNT(*)::int AS total_tickets,
+            COUNT(*) FILTER (WHERE status_norm = 'booked' OR status_norm = 'completed')::int AS booked_tickets,
+            COUNT(*) FILTER (WHERE status_norm = 'pending' OR status_raw IS NULL)::int AS pending_tickets,
+            COALESCE(SUM(total_amount), 0)::numeric AS total_amount
+          FROM (
+            SELECT
+              status AS status_raw,
+              LOWER(COALESCE(status::text, '')) AS status_norm,
+              total_amount
+            FROM ticket_book
+          ) tk
+        `,
         monthlyTickets: hTC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS tickets, COALESCE(SUM(total_amount), 0)::numeric AS amount FROM ticket_book WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS tickets, 0 AS amount WHERE false',
-        resumes: `SELECT COUNT(*)::int AS total_candidates, COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'selected')::int AS selected_candidates, COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'pending' OR candidate_status IS NULL)::int AS pending_candidates, COUNT(*) FILTER (WHERE LOWER(candidate_status::text) = 'rejected')::int AS rejected_candidates, COUNT(*) FILTER (WHERE LOWER(joined_status::text) = 'joined' OR LOWER(joined_status::text) = 'yes')::int AS joined_candidates, COUNT(*) FILTER (WHERE interviewer_status IS NOT NULL)::int AS interviewed_candidates FROM resume_request`,
+        resumes: `
+          SELECT
+            COUNT(*)::int AS total_candidates,
+            COUNT(*) FILTER (WHERE candidate_status_norm = 'selected')::int AS selected_candidates,
+            COUNT(*) FILTER (WHERE candidate_status_norm = 'pending' OR candidate_status_raw IS NULL)::int AS pending_candidates,
+            COUNT(*) FILTER (WHERE candidate_status_norm = 'rejected')::int AS rejected_candidates,
+            COUNT(*) FILTER (WHERE joined_status_norm = 'joined' OR joined_status_norm = 'yes')::int AS joined_candidates,
+            COUNT(*) FILTER (WHERE interviewer_status_raw IS NOT NULL)::int AS interviewed_candidates
+          FROM (
+            SELECT
+              candidate_status AS candidate_status_raw,
+              joined_status AS joined_status_raw,
+              interviewer_status AS interviewer_status_raw,
+              LOWER(COALESCE(candidate_status::text, '')) AS candidate_status_norm,
+              LOWER(COALESCE(joined_status::text, '')) AS joined_status_norm
+            FROM resume_request
+          ) rs
+        `,
         monthlyResumes: hResC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS candidates FROM resume_request WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS candidates WHERE false',
-        visitors: `SELECT COUNT(*)::int AS total_visitors, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'approved')::int AS approved_visitors, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'pending' OR request_status IS NULL)::int AS pending_visitors, COUNT(*) FILTER (WHERE LOWER(request_status::text) = 'rejected')::int AS rejected_visitors FROM plant_visitor`,
+        visitors: `
+          SELECT
+            COUNT(*)::int AS total_visitors,
+            COUNT(*) FILTER (WHERE request_status_norm = 'approved')::int AS approved_visitors,
+            COUNT(*) FILTER (WHERE request_status_norm = 'pending' OR request_status_raw IS NULL)::int AS pending_visitors,
+            COUNT(*) FILTER (WHERE request_status_norm = 'rejected')::int AS rejected_visitors
+          FROM (
+            SELECT
+              request_status AS request_status_raw,
+              LOWER(COALESCE(request_status::text, '')) AS request_status_norm
+            FROM plant_visitor
+          ) pv
+        `,
         monthlyVisitors: hVC ? `SELECT TO_CHAR(date_trunc('month', created_at), 'YYYY-MM') AS month, COUNT(*)::int AS visitors FROM plant_visitor WHERE created_at IS NOT NULL AND created_at >= date_trunc('month', CURRENT_DATE) - interval '${MONTH_WINDOW - 1} months' GROUP BY 1 ORDER BY 1` : 'SELECT NULL AS month, 0 AS visitors WHERE false',
-        activeEmpIDs: "SELECT employee_id FROM users WHERE LOWER(status::text) = 'active'"
+        activeEmpIDs: "SELECT employee_id FROM users WHERE LOWER(TRIM(COALESCE(status::text, ''))) = 'active' AND employee_id IS NOT NULL"
       };
 
       // Execute DB Queries and API Calls IN PARALLEL
@@ -117,13 +306,29 @@ class DashboardService {
         logsPromise
       ]);
 
-      const [sRes, stRes, hRes, dRes, lRes, mlRes, tRes, mtRes, tkRes, mtkRes, rRes, mrRes, vRes, mvRes, actRes, allLogs] = results;
+      const [sRes, stRes, hRes, dRes, lRes, mlRes, tRes, mtRes, tkRes, mtkRes, rRes, mrRes, vRes, mvRes, actRes, deviceData] = results;
+      const allLogs = Array.isArray(deviceData?.logs) ? deviceData.logs : [];
+      const deviceStatus = Array.isArray(deviceData?.deviceStatus) ? deviceData.deviceStatus : [];
 
       // Attendance Processing
-      const totalActive = actRes.rows.length;
-      const activeCodes = actRes.rows.map(e => String(e.employee_id));
-      const logsCodes = new Set(allLogs.filter(l => l && l.EmployeeCode).map(l => String(l.EmployeeCode)));
-      const presentCount = activeCodes.filter(c => logsCodes.has(c)).length;
+      const activeCodes = actRes.rows
+        .map(e => normalizeEmployeeCode(e.employee_id))
+        .filter(Boolean);
+      const totalActive = activeCodes.length;
+      const logsCodes = new Set(
+        allLogs
+          .filter(l => l && normalizeLogDate(l.LogDate) === dateStr)
+          .map(l => normalizeEmployeeCode(l.EmployeeCode))
+          .filter(Boolean)
+      );
+      let presentCount = 0;
+      for (const code of activeCodes) {
+        if (logsCodes.has(code)) presentCount += 1;
+      }
+      const todaysLogs = allLogs.filter(l => l && normalizeLogDate(l.LogDate) === dateStr);
+      const inCount = todaysLogs.filter(l => normalizePunchDirection(l) === 'in').length;
+      const outCount = todaysLogs.filter(l => normalizePunchDirection(l) === 'out').length;
+      const hasDeviceError = deviceStatus.some(d => !d.ok);
 
       const months = buildMonthWindow(MONTH_WINDOW);
       const hiringMap = new Map(hRes.rows.map(r => [r.month, r.hired]));
@@ -146,7 +351,16 @@ class DashboardService {
         monthlyRequestTrends: months.map(m => ({ month: m.label, leaves: lMap.get(m.key) || 0, travels: tMap.get(m.key) || 0, tickets: tkMap.get(m.key) || 0, visitors: vMap.get(m.key) || 0 })),
         monthlyTicketRevenue: months.map(m => ({ month: m.label, amount: tkaMap.get(m.key) || 0 })),
         designationCounts: dRes.rows.map(r => ({ designation: r.designation, employees: r.employees })),
-        attendance: { present: presentCount, absent: totalActive - presentCount, totalActive, date: dateStr }
+        attendance: {
+          present: presentCount,
+          absent: totalActive - presentCount,
+          totalActive,
+          date: dateStr,
+          inCount,
+          outCount,
+          deviceConnected: !hasDeviceError,
+          deviceStatus
+        }
       };
     } finally {
       client.release();
@@ -177,28 +391,19 @@ class DashboardService {
       const fS = toS(startDate), fE = toS(endDate);
 
       // Start everything in parallel
-      const [leaveRes, travelRes, ticketRes, visitRes, allLogs] = await Promise.all([
+      const [leaveRes, travelRes, ticketRes, visitRes, deviceData] = await Promise.all([
         client.query(`SELECT * FROM leave_request WHERE employee_id = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [finalUserId, fS, fE]),
         client.query(`SELECT * FROM request WHERE employee_code = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [employeeId, fS, fE]),
         client.query(`SELECT * FROM ticket_book WHERE (request_employee_code = $1 OR booked_employee_code = $1) AND created_at::date BETWEEN $2 AND $3 ORDER BY created_at DESC`, [employeeId, fS, fE]),
         client.query(`SELECT * FROM plant_visitor WHERE employee_code = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [employeeId, fS, fE]),
         this.fetchDeviceLogs(fS, fE)
       ]);
+      const allLogs = Array.isArray(deviceData?.logs) ? deviceData.logs : [];
 
-      const empLogs = allLogs.filter(l => l && String(l.EmployeeCode) === String(employeeId));
-      const getNorm = (s) => {
-        if (!s) return '';
-        let d = s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s);
-        if (d.includes('/')) {
-          const p = d.split('/');
-          if (p.length === 3) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
-        }
-        if (d.includes('-')) {
-          const p = d.split('-');
-          if (p[0].length <= 2 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
-        }
-        return d;
-      };
+      const targetEmployeeCode = normalizeEmployeeCode(employeeId);
+      const empLogs = allLogs.filter(
+        l => l && normalizeEmployeeCode(l.EmployeeCode) === targetEmployeeCode
+      );
 
       let present = 0, absent = 0;
       const attMap = {};
@@ -208,7 +413,7 @@ class DashboardService {
         const ds = toS(dt);
         if (dt > today) { attMap[ds] = '-'; }
         else {
-          const has = empLogs.some(l => getNorm(l.LogDate) === ds);
+          const has = empLogs.some(l => normalizeLogDate(l.LogDate) === ds);
           attMap[ds] = has ? 'P' : 'A';
           if (has) present++; else absent++;
         }
@@ -236,16 +441,19 @@ class DashboardService {
       const toS = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
       // Parallel Fetch
-      const [lRes, tRes, tkRes, vRes, allLogs] = await Promise.all([
+      const [lRes, tRes, tkRes, vRes, deviceData] = await Promise.all([
         client.query('SELECT * FROM leave_request WHERE employee_id = $1 ORDER BY from_date DESC', [user.id]),
         client.query('SELECT * FROM request WHERE employee_code = $1 ORDER BY from_date DESC', [employeeId]),
         client.query('SELECT * FROM ticket_book WHERE request_employee_code = $1 OR booked_employee_code = $1 ORDER BY created_at DESC', [employeeId]),
         client.query('SELECT * FROM plant_visitor WHERE employee_code = $1 ORDER BY from_date DESC', [employeeId]),
         this.fetchDeviceLogs(toS(sD), toS(eD))
       ]);
+      const allLogs = Array.isArray(deviceData?.logs) ? deviceData.logs : [];
 
-      const empLogs = allLogs.filter(l => l && String(l.EmployeeCode) === String(employeeId));
-      const getNorm = (s) => uRes.rows[0] ? (s.includes('T') ? s.split('T')[0] : (s.includes(' ') ? s.split(' ')[0] : s)) : ''; // Simple mock norm
+      const targetEmployeeCode = normalizeEmployeeCode(employeeId);
+      const empLogs = allLogs.filter(
+        l => l && normalizeEmployeeCode(l.EmployeeCode) === targetEmployeeCode
+      );
 
       let p = 0, a = 0;
       const attMap = {};
@@ -253,10 +461,7 @@ class DashboardService {
         const dt = new Date(sD.getFullYear(), sD.getMonth(), d);
         const ds = toS(dt);
         if (dt <= now) {
-          const has = empLogs.some(l => {
-            const nd = l.LogDate.includes('T') ? l.LogDate.split('T')[0] : (l.LogDate.includes(' ') ? l.LogDate.split(' ')[0] : l.LogDate);
-            return nd === ds || (nd.includes('/') && nd.split('/').reverse().join('-') === ds);
-          });
+          const has = empLogs.some(l => normalizeLogDate(l.LogDate) === ds);
           if (has) { p++; attMap[ds] = 'P'; } else { a++; attMap[ds] = 'A'; }
         }
       }
