@@ -5,14 +5,7 @@ const { uploadEmployeeImages } = require('../utils/employeeUpload');
 
 const router = express.Router();
 
-// router.post('/login', employeeController.loginEmployee.bind(employeeController));
-router.post('/login', (req, res) => {
-  return res.status(403).json({
-    success: false,
-    message: "Login disabled. Please login via Master Dashboard."
-  });
-});
-
+router.post('/login', employeeController.loginEmployee.bind(employeeController));
 router.post('/', uploadEmployeeImages, employeeController.createEmployee.bind(employeeController));
 router.get('/departments', employeeController.getDepartments.bind(employeeController));
 router.get('/designations', employeeController.getDesignations.bind(employeeController));
