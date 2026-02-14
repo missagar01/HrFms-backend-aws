@@ -1,4 +1,7 @@
-const { Pool } = require("pg");
+const { Pool, types } = require("pg");
+
+// Fix: Return DATE columns as strings (YYYY-MM-DD) to prevent timezone conversion issues
+types.setTypeParser(1082, (str) => str);
 
 const sslEnabled = String(process.env.PG_SSL || "").toLowerCase() === "true";
 

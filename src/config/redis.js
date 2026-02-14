@@ -14,6 +14,7 @@ if (!redisUrl) {
 
 const client = redisUrl ? createClient({
     url: redisUrl,
+    commandsQueueMaxLength: 1000, // Prevent memory issues if queue grows
     socket: {
         reconnectStrategy: (retries) => {
             // Limited retries: After 5 attempts, we slow down significantly
