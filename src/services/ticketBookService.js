@@ -1,18 +1,21 @@
 const ticketBookModel = require('../models/ticketBookModel');
 const { getImageUrl } = require('../utils/upload');
+const { getOrSetCache, invalidateCache } = require('../utils/cache');
 
 class TicketBookService {
   async getAllTickets() {
-    try {
-      const tickets = await ticketBookModel.findAll();
-      // Convert image filenames to URLs
-      return tickets.map(ticket => ({
-        ...ticket,
-        upload_bill_image: ticket.upload_bill_image ? getImageUrl(ticket.upload_bill_image) : null
-      }));
-    } catch (error) {
-      throw new Error(`Failed to fetch tickets: ${error.message}`);
-    }
+    return getOrSetCache('tickets:all', 300, async () => {
+      try {
+        const tickets = await ticketBookModel.findAll();
+        // Convert image filenames to URLs
+        return tickets.map(ticket => ({
+          ...ticket,
+          upload_bill_image: ticket.upload_bill_image ? getImageUrl(ticket.upload_bill_image) : null
+        }));
+      } catch (error) {
+        throw new Error(`Failed to fetch tickets: ${error.message}`);
+      }
+    });
   }
 
   async getTicketById(id) {
@@ -42,7 +45,13 @@ class TicketBookService {
       }
 
       const ticket = await ticketBookModel.create(data);
-      
+
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache('tickets:*')
+      ]);
+
       // Convert image filename to URL
       return {
         ...ticket,
@@ -66,7 +75,13 @@ class TicketBookService {
       }
 
       const ticket = await ticketBookModel.update(id, data);
-      
+
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache('tickets:*')
+      ]);
+
       // Convert image filename to URL
       return {
         ...ticket,
@@ -83,7 +98,13 @@ class TicketBookService {
       if (!existingTicket) {
         throw new Error('Ticket not found');
       }
-      return await ticketBookModel.delete(id);
+      const result = await ticketBookModel.delete(id);
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache('tickets:*')
+      ]);
+      return result;
     } catch (error) {
       throw error;
     }
@@ -101,4 +122,3 @@ class TicketBookService {
 }
 
 module.exports = new TicketBookService();
-

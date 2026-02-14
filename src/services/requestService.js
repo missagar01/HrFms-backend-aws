@@ -1,12 +1,15 @@
 const requestModel = require('../models/requestModel');
+const { getOrSetCache, invalidateCache } = require('../utils/cache');
 
 class RequestService {
   async getAllRequests() {
-    try {
-      return await requestModel.findAll();
-    } catch (error) {
-      throw new Error(`Failed to fetch requests: ${error.message}`);
-    }
+    return getOrSetCache('requests:all', 300, async () => {
+      try {
+        return await requestModel.findAll();
+      } catch (error) {
+        throw new Error(`Failed to fetch requests: ${error.message}`);
+      }
+    });
   }
 
 
@@ -31,6 +34,15 @@ class RequestService {
       this.validateRequestData(normalizedData);
 
       const result = await requestModel.create(normalizedData);
+
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache(`dashboard:user:${data.employee_code}:*`),
+        invalidateCache(`dashboard:details:${data.employee_code}`),
+        invalidateCache('requests:*')
+      ]);
+
       return result;
     } catch (error) {
       console.error('🟠 SERVICE ERROR:', error.message);
@@ -107,7 +119,17 @@ class RequestService {
       }
       // Normalize data for update as well
       const normalizedData = this.normalizeRequestData(data);
-      return await requestModel.update(id, normalizedData);
+      const result = await requestModel.update(id, normalizedData);
+
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache(`dashboard:user:${existingRequest.employee_code}:*`),
+        invalidateCache(`dashboard:details:${existingRequest.employee_code}`),
+        invalidateCache('requests:*')
+      ]);
+
+      return result;
     } catch (error) {
       throw error;
     }
@@ -119,7 +141,17 @@ class RequestService {
       if (!existingRequest) {
         throw new Error('Request not found');
       }
-      return await requestModel.delete(id);
+      const result = await requestModel.delete(id);
+
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache(`dashboard:user:${existingRequest.employee_code}:*`),
+        invalidateCache(`dashboard:details:${existingRequest.employee_code}`),
+        invalidateCache('requests:*')
+      ]);
+
+      return result;
     } catch (error) {
       throw error;
     }

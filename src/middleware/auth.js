@@ -1,10 +1,15 @@
 const jwt = require('jsonwebtoken');
 
+const fs = require('fs');
+const path = require('path');
+
 function authenticateToken(req, res, next) {
   const authHeader = req.headers.authorization || '';
   const [, token] = authHeader.split(' ');
+  const logFile = 'f:\\HR_FMS and TravalFms\\backend\\auth_debug.log';
 
   if (!token) {
+    fs.appendFileSync(logFile, `[${new Date().toISOString()}] Missing token for ${req.method} ${req.url}\n`);
     return res.status(401).json({ success: false, message: 'Missing token' });
   }
 
@@ -13,6 +18,7 @@ function authenticateToken(req, res, next) {
     req.user = payload;
     return next();
   } catch (error) {
+    fs.appendFileSync(logFile, `[${new Date().toISOString()}] Token verification failed for ${req.method} ${req.url}: ${error.message}. Token: ${token.substring(0, 10)}...\n`);
     return res.status(401).json({ success: false, message: 'Invalid token' });
   }
 }

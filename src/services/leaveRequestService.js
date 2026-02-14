@@ -1,12 +1,16 @@
 const leaveRequestModel = require('../models/leaveRequestModel');
+const { invalidateCache, getOrSetCache } = require('../utils/cache');
+const pool = require('../config/db');
 
 class LeaveRequestService {
   async getAllLeaveRequests() {
-    try {
-      return await leaveRequestModel.findAll();
-    } catch (error) {
-      throw new Error(`Failed to fetch leave requests: ${error.message}`);
-    }
+    return getOrSetCache('leaves:all', 300, async () => {
+      try {
+        return await leaveRequestModel.findAll();
+      } catch (error) {
+        throw new Error(`Failed to fetch leave requests: ${error.message}`);
+      }
+    });
   }
 
   async getLeaveRequestById(id) {
@@ -35,7 +39,9 @@ class LeaveRequestService {
   async createLeaveRequest(data) {
     try {
       this.validateLeaveRequestData(data);
-      return await leaveRequestModel.create(data);
+      const result = await leaveRequestModel.create(data);
+      await this.invalidateDashboardCache(data.employee_id);
+      return result;
     } catch (error) {
       throw new Error(`Failed to create leave request: ${error.message}`);
     }
@@ -48,7 +54,9 @@ class LeaveRequestService {
         throw new Error('Leave request not found');
       }
       this.validateLeaveRequestData({ ...existingLeaveRequest, ...data });
-      return await leaveRequestModel.update(id, data);
+      const result = await leaveRequestModel.update(id, data);
+      await this.invalidateDashboardCache(existingLeaveRequest.employee_id);
+      return result;
     } catch (error) {
       throw error;
     }
@@ -60,9 +68,35 @@ class LeaveRequestService {
       if (!existingLeaveRequest) {
         throw new Error('Leave request not found');
       }
-      return await leaveRequestModel.delete(id);
+      const result = await leaveRequestModel.delete(id);
+      await this.invalidateDashboardCache(existingLeaveRequest.employee_id);
+      return result;
     } catch (error) {
       throw error;
+    }
+  }
+
+  async invalidateDashboardCache(userPkey) {
+    try {
+      // 1. Invalidate Global
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache('leaves:*')
+      ]);
+
+      // 2. Fetch employee_id string to invalidate specific user cache
+      if (userPkey) {
+        const userRes = await pool.query('SELECT employee_id FROM users WHERE id = $1', [userPkey]);
+        const employeeIdString = userRes.rows[0]?.employee_id;
+        if (employeeIdString) {
+          await Promise.all([
+            invalidateCache(`dashboard:user:${employeeIdString}:*`),
+            invalidateCache(`dashboard:details:${employeeIdString}`)
+          ]);
+        }
+      }
+    } catch (err) {
+      console.error('Error in invalidateDashboardCache:', err.message);
     }
   }
 

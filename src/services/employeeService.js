@@ -1,14 +1,17 @@
 const jwt = require('jsonwebtoken');
 const employeeModel = require('../models/employeeModel');
 const { getEmployeeImageUrl } = require('../utils/employeeUpload');
+const { invalidateCache, getOrSetCache } = require('../utils/cache');
 
 class EmployeeService {
   async getAllEmployees() {
-    try {
-      return await employeeModel.getAll();
-    } catch (error) {
-      throw new Error(`Failed to fetch employees: ${error.message}`);
-    }
+    return getOrSetCache('employees:all', 300, async () => {
+      try {
+        return await employeeModel.getAll();
+      } catch (error) {
+        throw new Error(`Failed to fetch employees: ${error.message}`);
+      }
+    });
   }
 
   async getEmployeeById(id) {
@@ -45,7 +48,13 @@ class EmployeeService {
         }
       }
 
-      return await employeeModel.create(data);
+      const result = await employeeModel.create(data);
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache('employees:*')
+      ]);
+      return result;
     } catch (error) {
       throw new Error(`Failed to create employee: ${error.message}`);
     }
@@ -78,7 +87,15 @@ class EmployeeService {
         payload.document_img = getEmployeeImageUrl(files.document_img[0].filename, baseUrl);
       }
 
-      return await employeeModel.update(id, payload);
+      const result = await employeeModel.update(id, payload);
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache(`dashboard:details:${existingEmployee.employee_id}`),
+        invalidateCache(`dashboard:user:${existingEmployee.employee_id}:*`),
+        invalidateCache('employees:*')
+      ]);
+      return result;
     } catch (error) {
       throw error;
     }
@@ -90,7 +107,15 @@ class EmployeeService {
       if (!existingEmployee) {
         throw new Error('Employee not found');
       }
-      return await employeeModel.remove(id);
+      const result = await employeeModel.remove(id);
+      // Invalidate Caches
+      await Promise.all([
+        invalidateCache('dashboard:admin:global'),
+        invalidateCache(`dashboard:details:${existingEmployee.employee_id}`),
+        invalidateCache(`dashboard:user:${existingEmployee.employee_id}:*`),
+        invalidateCache('employees:*')
+      ]);
+      return result;
     } catch (error) {
       throw error;
     }
@@ -129,19 +154,23 @@ class EmployeeService {
   }
 
   async getDistinctDepartments() {
-    try {
-      return await employeeModel.getDistinctDepartments();
-    } catch (error) {
-      throw new Error(`Failed to fetch departments: ${error.message}`);
-    }
+    return getOrSetCache('employees:departments', 3600, async () => {
+      try {
+        return await employeeModel.getDistinctDepartments();
+      } catch (error) {
+        throw new Error(`Failed to fetch departments: ${error.message}`);
+      }
+    });
   }
 
   async getDistinctDesignations() {
-    try {
-      return await employeeModel.getDistinctDesignations();
-    } catch (error) {
-      throw new Error(`Failed to fetch designations: ${error.message}`);
-    }
+    return getOrSetCache('employees:designations', 3600, async () => {
+      try {
+        return await employeeModel.getDistinctDesignations();
+      } catch (error) {
+        throw new Error(`Failed to fetch designations: ${error.message}`);
+      }
+    });
   }
 
   validateEmployeeData(data) {
