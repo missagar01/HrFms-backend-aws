@@ -9,25 +9,29 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
 
     steps:
+      - name: Preserve .env
+        run: |
+          if [ -f .env ]; then
+            cp .env /tmp/.env.bak
+            echo "✅ .env backed up"
+          else
+            echo "⚠️ No .env found to backup"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          clean: false   # 🔥 VERY IMPORTANT
+          clean: true
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Ensure .env exists (DO NOT overwrite)
+      - name: Restore .env
         run: |
-          if [ ! -f .env ]; then
-            echo "❌ .env missing! Create it manually using nano .env"
+          if [ -f /tmp/.env.bak ]; then
+            cp /tmp/.env.bak .env
+            echo "✅ .env restored"
+          else
+            echo "❌ .env missing! Create it manually"
             exit 1
           fi
-          chmod 600 .env
-          echo "✅ .env preserved"
 
       - name: Install dependencies
         run: npm install

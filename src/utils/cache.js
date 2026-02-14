@@ -114,19 +114,13 @@ async function invalidateCache(pattern) {
             COUNT: 100
         });
 
-        // Collect keys to delete in batches
-        const keysToDelete = [];
         for await (const key of iterator) {
-            keysToDelete.push(key);
-            if (keysToDelete.length >= 100) {
-                await redisClient.del(keysToDelete);
-                keysToDelete.length = 0;
+            try {
+                // Delete one by one to avoid issues with array arguments in some redis client versions
+                await redisClient.del(key);
+            } catch (e) {
+                // Ignore errors for individual keys
             }
-        }
-
-        // Delete remaining keys
-        if (keysToDelete.length > 0) {
-            await redisClient.del(keysToDelete);
         }
     } catch (err) {
         console.error(`❌ [Redis] Invalidation Error for pattern ${pattern}:`, err.message);
