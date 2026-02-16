@@ -47,10 +47,11 @@ class LeaveRequestModel {
         commercial_head_status,
         approve_dates,
         created_at,
-        updated_at
+        updated_at,
+        user_id
       ) VALUES (
         (SELECT COALESCE(MAX(id), 0) + 1 FROM leave_request),
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $17
       )
       RETURNING *
     `;
@@ -71,7 +72,8 @@ class LeaveRequestModel {
       data.mobilenumber ?? null,
       data.urgent_mobilenumber ?? null,
       data.commercial_head_status ?? null,
-      data.approve_dates ?? null
+      data.approve_dates ?? null,
+      data.user_id ?? null
     ];
 
     const result = await pool.query(query, values);
@@ -98,8 +100,9 @@ class LeaveRequestModel {
         urgent_mobilenumber = COALESCE($14, urgent_mobilenumber),
         commercial_head_status = COALESCE($15, commercial_head_status),
         approve_dates = COALESCE($16, approve_dates),
+        user_id = COALESCE($17, user_id),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $17
+      WHERE id = $18
       RETURNING *
     `;
 
@@ -120,6 +123,7 @@ class LeaveRequestModel {
       data.urgent_mobilenumber,
       data.commercial_head_status,
       data.approve_dates,
+      data.user_id,
       id
     ];
 

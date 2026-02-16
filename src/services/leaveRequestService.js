@@ -101,8 +101,8 @@ class LeaveRequestService {
   }
 
   validateLeaveRequestData(data) {
-    if (data.employee_id && !Number.isInteger(Number(data.employee_id))) {
-      throw new Error('employee_id must be an integer');
+    if (data.employee_id && typeof data.employee_id !== 'string' && typeof data.employee_id !== 'number') {
+      throw new Error('employee_id must be a string or number');
     }
 
     if (data.from_date && data.to_date) {
