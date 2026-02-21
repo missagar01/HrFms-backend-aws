@@ -8,7 +8,7 @@ const DEVICE_API_URL = 'http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs';
 
 const MONTH_WINDOW = 6;
 const ATTRITION_PATTERN = 'resign|left|terminated|separate';
-const CACHE_TTL = 300; // 5 minutes cache for dashboard
+const CACHE_TTL = 10; // 10 seconds cache for dashboard
 
 function getLocalDateString(date = new Date()) {
   const year = date.getFullYear();

@@ -4,7 +4,7 @@ const { getOrSetCache, invalidateCache } = require('../utils/cache');
 
 class TicketBookService {
   async getAllTickets() {
-    return getOrSetCache('tickets:all', 300, async () => {
+    return getOrSetCache('tickets:all', 10, async () => {
       try {
         const tickets = await ticketBookModel.findAll();
         // Convert image filenames to URLs

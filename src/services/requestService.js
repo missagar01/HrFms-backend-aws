@@ -3,7 +3,7 @@ const { getOrSetCache, invalidateCache } = require('../utils/cache');
 
 class RequestService {
   async getAllRequests() {
-    return getOrSetCache('requests:all', 300, async () => {
+    return getOrSetCache('requests:all', 10, async () => {
       try {
         return await requestModel.findAll();
       } catch (error) {

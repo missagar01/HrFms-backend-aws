@@ -1,10 +1,11 @@
 const leaveRequestModel = require('../models/leaveRequestModel');
 const { invalidateCache, getOrSetCache } = require('../utils/cache');
 const pool = require('../config/db');
+const whatsappService = require('./whatsappService');
 
 class LeaveRequestService {
   async getAllLeaveRequests() {
-    return getOrSetCache('leaves:all', 300, async () => {
+    return getOrSetCache('leaves:all', 10, async () => {
       try {
         return await leaveRequestModel.findAll();
       } catch (error) {
@@ -41,6 +42,17 @@ class LeaveRequestService {
       this.validateLeaveRequestData(data);
       const result = await leaveRequestModel.create(data);
       await this.invalidateDashboardCache(data.employee_id);
+
+      // Send WhatsApp Notification to Primary Mobile Number
+      if (data.mobilenumber) {
+        whatsappService.sendLeaveRequestMessage(data.mobilenumber, data);
+      }
+
+      // Send WhatsApp Notification to Urgent Mobile Number
+      if (data.urgent_mobilenumber && data.urgent_mobilenumber !== data.mobilenumber) {
+        whatsappService.sendLeaveRequestMessage(data.urgent_mobilenumber, data, true);
+      }
+
       return result;
     } catch (error) {
       throw new Error(`Failed to create leave request: ${error.message}`);
@@ -56,6 +68,18 @@ class LeaveRequestService {
       this.validateLeaveRequestData({ ...existingLeaveRequest, ...data });
       const result = await leaveRequestModel.update(id, data);
       await this.invalidateDashboardCache(existingLeaveRequest.employee_id);
+
+      // Send WhatsApp Notification for status update (Approve/Reject)
+      if (data.approved_by_status || data.approved_by) {
+        const fullData = { ...existingLeaveRequest, ...data };
+        if (fullData.mobilenumber) {
+          whatsappService.sendLeaveStatusUpdate(fullData.mobilenumber, fullData);
+        }
+        if (fullData.urgent_mobilenumber && fullData.urgent_mobilenumber !== fullData.mobilenumber) {
+          whatsappService.sendLeaveStatusUpdate(fullData.urgent_mobilenumber, fullData);
+        }
+      }
+
       return result;
     } catch (error) {
       throw error;

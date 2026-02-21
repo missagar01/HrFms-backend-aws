@@ -5,7 +5,7 @@ const { invalidateCache, getOrSetCache } = require('../utils/cache');
 
 class EmployeeService {
   async getAllEmployees() {
-    return getOrSetCache('employees:all', 300, async () => {
+    return getOrSetCache('employees:all', 10, async () => {
       try {
         return await employeeModel.getAll();
       } catch (error) {
