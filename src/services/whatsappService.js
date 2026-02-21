@@ -38,14 +38,14 @@ class WhatsAppService {
             if (!dateStr) return 'N/A';
             try {
                 const date = new Date(dateStr);
-                return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Kolkata' });
             } catch (e) {
                 return dateStr;
             }
         };
 
         // 2. Message Variation (Adding timestamp to make each message unique)
-        const timestamp = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const timestamp = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
 
         const message = `${isUrgent ? '*URGENT: Leave Notification*' : '*Leave Request Submitted*'}
       
@@ -96,13 +96,13 @@ _Ref: ${timestamp}_`;
             if (!dateStr) return 'N/A';
             try {
                 const date = new Date(dateStr);
-                return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Kolkata' });
             } catch (e) {
                 return dateStr;
             }
         };
 
-        const timestamp = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const timestamp = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
         const status = data.approved_by_status || 'Updated';
         const emoji = status.toLowerCase() === 'approved' ? '✅' : status.toLowerCase() === 'rejected' ? '❌' : 'ℹ️';
 
