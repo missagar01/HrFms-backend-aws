@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const axios = require('axios');
 const { getOrSetCache } = require('../utils/cache');
+const employeeModel = require('../models/employeeModel');
 
 const API_KEY = '361011012609';
 const DEVICE_SERIALS = ['E03C1CB36042AA02', 'E03C1CB34D83AA02'];
@@ -451,9 +452,8 @@ class DashboardService {
     return getOrSetCache(cacheKey, CACHE_TTL, async () => {
       const client = await pool.connect();
       try {
-        const uRes = await client.query('SELECT * FROM users WHERE employee_id = $1', [employeeId]);
-        if (uRes.rows.length === 0) throw new Error('Employee not found');
-        const user = uRes.rows[0];
+        const user = await employeeModel.getByEmployeeId(employeeId);
+        if (!user) throw new Error('Employee not found');
 
         const now = new Date();
         const sD = new Date(now.getFullYear(), now.getMonth(), 1);

@@ -55,7 +55,7 @@ const uploadEmployeeImages = multer({
   fileFilter: fileFilter
 }).fields([
   { name: 'profile_img', maxCount: 1 },
-  { name: 'document_img', maxCount: 1 }
+  { name: 'document_img', maxCount: 10 }
 ]);
 
 // Determine base URL from explicit value or environment defaults

@@ -43,8 +43,9 @@ class EmployeeService {
         if (files.profile_img && files.profile_img[0]) {
           data.profile_img = getEmployeeImageUrl(files.profile_img[0].filename, baseUrl);
         }
-        if (files.document_img && files.document_img[0]) {
-          data.document_img = getEmployeeImageUrl(files.document_img[0].filename, baseUrl);
+        if (files.document_img && files.document_img.length > 0) {
+          const documentUrls = files.document_img.map(file => getEmployeeImageUrl(file.filename, baseUrl));
+          data.document_img = JSON.stringify(documentUrls);
         }
       }
 
@@ -83,8 +84,37 @@ class EmployeeService {
         payload.profile_img = getEmployeeImageUrl(files.profile_img[0].filename, baseUrl);
       }
 
-      if (files?.document_img?.[0]) {
-        payload.document_img = getEmployeeImageUrl(files.document_img[0].filename, baseUrl);
+      // Handle document updates (selective removal + new uploads)
+      let currentDocuments = [];
+      let docChanged = false;
+
+      // 1. Get existing documents if provided by frontend
+      if (data.existing_documents !== undefined) {
+        docChanged = true;
+        try {
+          currentDocuments = typeof data.existing_documents === 'string'
+            ? JSON.parse(data.existing_documents)
+            : data.existing_documents;
+        } catch (error) {
+          console.error('Error parsing existing_documents:', error);
+          // Fallback to existing ones if parse fails
+          currentDocuments = Array.isArray(existingEmployee.document_img) ? existingEmployee.document_img : [];
+        }
+      } else {
+        // If not provided, assume we keep what's there unless new files are coming
+        currentDocuments = Array.isArray(existingEmployee.document_img) ? existingEmployee.document_img : [];
+      }
+
+      // 2. Add newly uploaded files
+      if (files?.document_img && files.document_img.length > 0) {
+        docChanged = true;
+        const documentUrls = files.document_img.map(file => getEmployeeImageUrl(file.filename, baseUrl));
+        currentDocuments = [...currentDocuments, ...documentUrls];
+      }
+
+      // 3. Update payload if any changes occurred
+      if (docChanged) {
+        payload.document_img = JSON.stringify(currentDocuments);
       }
 
       const result = await employeeModel.update(id, payload);

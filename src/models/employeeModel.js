@@ -79,24 +79,48 @@ const deserializePageAccess = (value) => {
   }
 };
 
-const hydrateEmployeePageAccess = (employee) => {
+const deserializeDocuments = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+
+  if (typeof value !== "string") return [String(value)];
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed;
+    return [parsed];
+  } catch {
+    if (value.includes(',')) {
+      return value.split(',').map(item => item.trim()).filter(Boolean);
+    }
+    return [value];
+  }
+};
+
+const hydrateEmployee = (employee) => {
   if (!employee) {
     return null;
   }
   return {
     ...employee,
     page_access: deserializePageAccess(employee.page_access),
+    document_img: deserializeDocuments(employee.document_img),
   };
 };
 
+async function getByEmployeeId(employeeId) {
+  const result = await pool.query("SELECT * FROM users WHERE employee_id = $1", [employeeId]);
+  return hydrateEmployee(result.rows[0]);
+}
+
 async function getAll() {
   const result = await pool.query("SELECT * FROM users ORDER BY id ASC");
-  return result.rows.map(hydrateEmployeePageAccess);
+  return result.rows.map(hydrateEmployee);
 }
 
 async function getById(id) {
   const result = await pool.query("SELECT * FROM users WHERE id = $1", [id]);
-  return hydrateEmployeePageAccess(result.rows[0]);
+  return hydrateEmployee(result.rows[0]);
 }
 
 async function create(data) {
@@ -137,7 +161,7 @@ async function create(data) {
   ];
 
   const result = await pool.query(query, values);
-  const created = hydrateEmployeePageAccess(result.rows[0]);
+  const created = hydrateEmployee(result.rows[0]);
   return created;
 }
 
@@ -181,7 +205,7 @@ async function update(id, data) {
   ];
 
   const result = await pool.query(query, values);
-  const updated = hydrateEmployeePageAccess(result.rows[0]);
+  const updated = hydrateEmployee(result.rows[0]);
   return updated;
 }
 
@@ -195,7 +219,7 @@ async function getByCredentials(identifier, password) {
     "SELECT * FROM users WHERE (user_name = $1 OR employee_id = $1) AND password = $2",
     [identifier, password]
   );
-  return hydrateEmployeePageAccess(result.rows[0]);
+  return hydrateEmployee(result.rows[0]);
 }
 
 async function getDistinctDepartments() {
@@ -220,5 +244,7 @@ module.exports = {
   remove,
   getByCredentials,
   getDistinctDepartments,
-  getDistinctDesignations
+  getDistinctDesignations,
+  getByEmployeeId,
+  hydrateEmployee
 };
