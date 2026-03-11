@@ -3,9 +3,9 @@ const axios = require('axios');
 const { getOrSetCache } = require('../utils/cache');
 const employeeModel = require('../models/employeeModel');
 
-const API_KEY = process.env.API_KEY;
-const DEVICE_SERIALS = process.env.DEVICE_SERIALS ? process.env.DEVICE_SERIALS.split(',') : [];
-const DEVICE_API_URL = process.env.DEVICE_API_URL;
+const API_KEY = '361011012609';
+const DEVICE_SERIALS = ['E03C1CB36042AA02', 'E03C1CB34D83AA02'];
+const DEVICE_API_URL = 'http://139.167.179.192:90/api/v2/WebAPI/GetDeviceLogs';
 
 const MONTH_WINDOW = 6;
 const ATTRITION_PATTERN = 'resign|left|terminated|separate';
@@ -138,12 +138,9 @@ class DashboardService {
   }
 
   async fetchDeviceLogs(fromDate, toDate) {
-    if (!DEVICE_API_URL) return { logs: [], deviceStatus: [] };
-
     const logPromises = DEVICE_SERIALS.map(serial =>
       axios.get(DEVICE_API_URL, {
-        params: { APIKey: API_KEY, SerialNumber: serial, FromDate: fromDate, ToDate: toDate },
-        timeout: 2000 // 2 seconds timeout to prevent the API from hanging for a long time on EC2
+        params: { APIKey: API_KEY, SerialNumber: serial, FromDate: fromDate, ToDate: toDate }
       }).then(res => ({
         serial,
         logs: extractDeviceLogs(res.data),
@@ -384,10 +381,8 @@ class DashboardService {
    * Optimized with Redis Caching and Bound Queries
    */
   async getEmployeeDashboardStats(userId, employeeId, monthStr) {
-    console.log(`[LIVE API HIT] getEmployeeDashboardStats called with: userId=${userId}, employeeId=${employeeId}, monthStr=${monthStr}`);
     const cacheKey = `dashboard:user:${employeeId}:${monthStr || 'current'}`;
     return getOrSetCache(cacheKey, CACHE_TTL, async () => {
-      console.log(`[CACHE MISS] Fetching fresh data for ${employeeId}`);
       const client = await pool.connect();
       try {
         let finalUserId = userId;
@@ -412,7 +407,7 @@ class DashboardService {
 
         // Optimized Selects with only required columns
         const [leaveRes, travelRes, ticketRes, visitRes, deviceData] = await Promise.all([
-          client.query(`SELECT id, from_date, to_date, reason, request_status, approved_by_status FROM leave_request WHERE (employee_id = $1 OR user_id = $4) AND (from_date <= $3 AND COALESCE(to_date, from_date) >= $2) ORDER BY from_date DESC`, [employeeId, fS, fE, finalUserId]),
+          client.query(`SELECT id, from_date, to_date, reason, request_status, approved_by_status FROM leave_request WHERE employee_id = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [finalUserId, fS, fE]),
           client.query(`SELECT id, from_date, to_date, reason_for_travel, from_city, to_city, request_status FROM request WHERE employee_code = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [employeeId, fS, fE]),
           client.query(`SELECT id, travels_name, bill_number, total_amount, status, created_at FROM ticket_book WHERE (request_employee_code = $1 OR booked_employee_code = $1) AND created_at::date BETWEEN $2 AND $3 ORDER BY created_at DESC`, [employeeId, fS, fE]),
           client.query(`SELECT id, person_name, from_date, to_date, reason_for_visit, request_status FROM plant_visitor WHERE employee_code = $1 AND from_date BETWEEN $2 AND $3 ORDER BY from_date DESC`, [employeeId, fS, fE]),
@@ -425,34 +420,14 @@ class DashboardService {
           l => l && normalizeEmployeeCode(l.EmployeeCode) === targetEmployeeCode
         );
 
-        const approvedLeaves = leaveRes.rows.filter(l =>
-          (l.request_status || '').toLowerCase() === 'approved' ||
-          (l.approved_by_status || '').toLowerCase() === 'approved'
-        );
-
-        let present = 0, absent = 0, onLeave = 0;
+        let present = 0, absent = 0;
         const attMap = {};
         const days = endDate.getDate();
         for (let d = 1; d <= days; d++) {
           const dt = new Date(startDate.getFullYear(), startDate.getMonth(), d);
           const ds = toS(dt);
-
-          const isLeave = approvedLeaves.some(l => {
-            const normStart = toS(new Date(l.from_date));
-            const normEnd = toS(new Date(l.to_date || l.from_date));
-            return ds >= normStart && ds <= normEnd;
-          });
-
-          if (isLeave) {
-            if (dt <= today) {
-              attMap[ds] = 'L';
-              onLeave++; // Only count leaves that have occurred or are occurring
-            } else {
-              attMap[ds] = 'AL'; // Approved Leave (Future)
-            }
-          } else if (dt > today) {
-            attMap[ds] = '-';
-          } else {
+          if (dt > today) { attMap[ds] = '-'; }
+          else {
             const has = empLogs.some(l => normalizeLogDate(l.LogDate) === ds);
             attMap[ds] = has ? 'P' : 'A';
             if (has) present++; else absent++;
@@ -460,7 +435,7 @@ class DashboardService {
         }
 
         return {
-          attendance: { present, absent, onLeave, totalWorkingDays: present + absent + onLeave, details: attMap, month: monthStr || startDate.toISOString().slice(0, 7) },
+          attendance: { present, absent, totalWorkingDays: present + absent, details: attMap, month: monthStr || startDate.toISOString().slice(0, 7) },
           leaves: leaveRes.rows, travels: travelRes.rows, tickets: ticketRes.rows, visits: visitRes.rows
         };
       } finally {
@@ -487,7 +462,7 @@ class DashboardService {
 
         // Parallel Fetch with lean columns
         const [lRes, tRes, tkRes, vRes, deviceData] = await Promise.all([
-          client.query('SELECT id, from_date, to_date, reason, request_status, approved_by_status FROM leave_request WHERE (employee_id = $1 OR user_id = $2) ORDER BY from_date DESC', [employeeId, user.id]),
+          client.query('SELECT id, from_date, to_date, reason, request_status FROM leave_request WHERE employee_id = $1 ORDER BY from_date DESC', [user.id]),
           client.query('SELECT id, from_date, to_date, reason_for_travel, request_status FROM request WHERE employee_code = $1 ORDER BY from_date DESC', [employeeId]),
           client.query('SELECT id, total_amount, status, created_at FROM ticket_book WHERE request_employee_code = $1 OR booked_employee_code = $1 ORDER BY created_at DESC', [employeeId]),
           client.query('SELECT id, from_date, person_name, reason_for_visit, request_status FROM plant_visitor WHERE employee_code = $1 ORDER BY from_date DESC', [employeeId]),
@@ -500,31 +475,12 @@ class DashboardService {
           l => l && normalizeEmployeeCode(l.EmployeeCode) === targetEmployeeCode
         );
 
-        const approvedLeaves = lRes.rows.filter(l =>
-          (l.request_status || '').toLowerCase() === 'approved' ||
-          (l.approved_by_status || '').toLowerCase() === 'approved'
-        );
-
-        let p = 0, a = 0, onLeave = 0;
+        let p = 0, a = 0;
         const attMap = {};
         for (let d = 1; d <= eD.getDate(); d++) {
           const dt = new Date(sD.getFullYear(), sD.getMonth(), d);
           const ds = toS(dt);
-
-          const isLeave = approvedLeaves.some(l => {
-            const normStart = toS(new Date(l.from_date));
-            const normEnd = toS(new Date(l.to_date || l.from_date));
-            return ds >= normStart && ds <= normEnd;
-          });
-
-          if (isLeave) {
-            if (dt <= now) {
-              attMap[ds] = 'L';
-              onLeave++; // Only count towards summary if it has passed
-            } else {
-              attMap[ds] = 'AL';
-            }
-          } else if (dt <= now) {
+          if (dt <= now) {
             const has = empLogs.some(l => normalizeLogDate(l.LogDate) === ds);
             if (has) { p++; attMap[ds] = 'P'; } else { a++; attMap[ds] = 'A'; }
           }
@@ -532,7 +488,7 @@ class DashboardService {
 
         return {
           profile: user,
-          attendanceSummary: { month: new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(now), present: p, absent: a, onLeave, total: p + a + onLeave, details: attMap },
+          attendanceSummary: { month: new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(now), present: p, absent: a, total: p + a, details: attMap },
           leaves: lRes.rows, travels: tRes.rows, tickets: tkRes.rows, visits: vRes.rows
         };
       } finally {
