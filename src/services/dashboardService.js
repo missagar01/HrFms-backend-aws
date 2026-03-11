@@ -138,9 +138,12 @@ class DashboardService {
   }
 
   async fetchDeviceLogs(fromDate, toDate) {
+    if (!DEVICE_API_URL) return { logs: [], deviceStatus: [] };
+
     const logPromises = DEVICE_SERIALS.map(serial =>
       axios.get(DEVICE_API_URL, {
-        params: { APIKey: API_KEY, SerialNumber: serial, FromDate: fromDate, ToDate: toDate }
+        params: { APIKey: API_KEY, SerialNumber: serial, FromDate: fromDate, ToDate: toDate },
+        timeout: 2000 // 2 seconds timeout to prevent the API from hanging for a long time on EC2
       }).then(res => ({
         serial,
         logs: extractDeviceLogs(res.data),
